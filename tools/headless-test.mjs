@@ -117,6 +117,51 @@ check('staying high forces a go-around', high.state === 4 && /MISSED/.test(high.
 const heavy = await fly('heavy');
 check('an arrival rather than a landing costs the airframe', heavy.state === 3, JSON.stringify(heavy));
 
+// --- gold gates exist, are worth treble, and sit off the easy line ---
+const gold = await page.evaluate(() => {
+  const S = window.SKY;
+  S.play();
+  const seen = [];
+  for (let i = 0; i < 3000 && seen.length < 6; i++) {
+    for (const r of S.Rings.list) {
+      if (r.active && r.gold && !seen.some(g => g.n === r.n)) {
+        seen.push({ n: r.n, offLine: Math.round(Math.abs(r.x - S.courseX(r.z))),
+                    agl: Math.round(r.y - S.groundAt(r.x, r.z)) });
+      }
+    }
+    S.P.y = Math.max(S.P.y, 140);
+    S.step(3);
+  }
+  return seen;
+});
+check('gold gates appear, low and off the line', gold.length > 0 &&
+  gold.every(g => g.agl < 70) && gold.some(g => g.offLine > 60),
+  gold.length + ' seen, e.g. ' + JSON.stringify(gold[0] || {}));
+
+// --- the logbook survives a reload ---
+const storage = await page.evaluate(() => {
+  try { window.localStorage.setItem('__t', '1'); window.localStorage.removeItem('__t'); return true; }
+  catch (e) { return false; }
+});
+if (!storage) {
+  console.log('SKIP  logbook persistence   (localStorage unavailable on file://)');
+} else {
+  await page.evaluate(() => {
+    window.SKY.Save.submit({ name: 'ZZZ', score: 424242, lvl: 7, rings: 9, chain: 6 });
+  });
+  await page.reload();
+  await page.waitForTimeout(2000);
+  const kept = await page.evaluate(() => {
+    const b = window.SKY.Save.data.board;
+    return { top: b[0] && b[0].name, score: b[0] && b[0].score,
+             best: window.SKY.Save.data.bestScore,
+             shown: document.getElementById('boardList').textContent.includes('ZZZ') };
+  });
+  check('the logbook survives a reload', kept.top === 'ZZZ' && kept.score === 424242 && kept.shown,
+    JSON.stringify(kept));
+  await page.evaluate(() => { try { window.localStorage.removeItem('skylarkRun.v1'); } catch (e) {} });
+}
+
 check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 await browser.close();
 console.log(failed ? failed + ' check(s) failed' : 'all checks passed');

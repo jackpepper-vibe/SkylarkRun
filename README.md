@@ -29,6 +29,9 @@ tap **Enable tilt & fly**, and can be re-taken from the pause screen.
   **Fuel, score and sector distance only start once you are airborne.**
 - **Gates** score 120 x your chain multiplier, up to x8. Dead-centre is a bullseye.
   Fly past one and the chain breaks.
+- **Gold gates** pay treble, and are never on the easy line — down in the hollows,
+  out on a limb, low enough over the trees to make you think about it. Roughly two
+  or three a sector. The chart and the gate marker both flag them in gold.
 - **Fuel balloons** put 38 back in the tank. Fuel is the clock — it never stops.
 - **Hazards** from sector 2: pylon cables, guyed masts, wind turbines, balloons and
   bird flocks. Terrain and treetops are always live.
@@ -53,6 +56,10 @@ Each sector changes the land (meadows, highlands, lakeland, downland), the light
 (morning through golden hour) and, from sector 3, the weather (gusts, showers,
 thermals).
 
+Your logbook — top five scores, best score, furthest sector and longest chain —
+is kept in `localStorage` and shown on the title card. Every access is guarded,
+so private browsing or a full quota just means the logbook stays in memory.
+
 ## How it is put together
 
 Systems are small managers with the same shape — build once, `reset(level)`,
@@ -66,6 +73,11 @@ Systems are small managers with the same shape — build once, `reset(level)`,
 - **Post** is a hand-rolled bloom + god-ray + grade chain on core Three.js only.
 - **The cockpit** is drawn in 2D over the render: brass gauges, a magnetic
   compass, a paper chart on the knee, and a parasol wing overhead.
+- **Contact shadows** without shadow maps: the sun is fixed for a sector, so
+  scenery gets a soft instanced blob thrown away from it, and the aeroplane gets
+  a silhouette on the ground. That one is cast forward at a fixed rake rather
+  than honestly — the sun is ahead of you in every sector, so a true projection
+  would hide your own shadow behind the tail forever.
 
 Measured cost is about 0.7 ms of JavaScript per frame (0.07 ms simulation,
 0.66 ms cockpit); the rest is GPU.

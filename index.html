@@ -91,6 +91,7 @@
   </svg>
   <h1>Skylark <span>Run</span></h1>
   <div class="sub">open cockpit &middot; open country</div>
+  <div class="stat" id="bestLine" style="display:none;margin-bottom:12px;"></div>
   <div class="placard">
     <b>TILT</b> to bank &middot; dive &middot; climb<br>
     Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>
@@ -113,6 +114,7 @@
   <div class="sub" id="overSub">flight report</div>
   <div class="stat">Score: <b id="finalScore">0</b></div>
   <div class="stat">Rings: <b id="finalRings">0</b> &middot; <b id="finalDist">0.0 km</b> &middot; Sector <b id="finalLvl">1</b></div>
+  <div class="stat">Best chain: <b id="finalChain">x0</b></div>
   <div id="entryRow" style="margin-top:12px;display:flex;gap:10px;align-items:center;">
     <div class="slotCol"><button class="slotBtn" data-s="0" data-d="1">&#9650;</button><div class="slotL" id="sl0">A</div><button class="slotBtn" data-s="0" data-d="-1">&#9660;</button></div>
     <div class="slotCol"><button class="slotBtn" data-s="1" data-d="1">&#9650;</button><div class="slotL" id="sl1">A</div><button class="slotBtn" data-s="1" data-d="-1">&#9660;</button></div>
@@ -127,7 +129,7 @@
   <h1 style="font-size:34px">Sector <span id="clearLvl">1</span> flown</h1>
   <div class="sub">wheels stopped</div>
   <div class="stat"><b id="bLand" style="color:#c9ffd0"></b></div>
-  <div class="stat">Rings: <b id="bRings">0</b></div>
+  <div class="stat">Rings: <b id="bRings">0</b> &middot; chain <b id="bChain">x0</b></div>
   <div class="stat">Fuel bonus: <b id="bFuel">0</b></div>
   <div class="stat">Airframe bonus: <b id="bHull">0</b></div>
   <div class="stat">Score: <b id="clearScore">0</b></div>
@@ -179,9 +181,53 @@ let readyT=0;                     // 3-2-1 hold before the controls go live
 let warnObst=false, lastBeep=0, lastFuelBeep=0;
 const dents=[];                   // cowling damage accumulated over the run
 const G={score:0,combo:0,bestCombo:0,fuel:100,lvl:1,levelEnd:5400,
-         rings:0,ringsHit:0,landLabel:""};
+         rings:0,ringsHit:0,gold:0,goldHit:0,landLabel:""};
 const popups=[];
-const board=[];
+// ---------- the logbook: scores that survive a reload ----------
+// Storage can throw (private mode, quota, file:// in some browsers), so every
+// access is guarded and the game carries on with an in-memory logbook.
+const Save={
+  KEY:"skylarkRun.v1",
+  data:{board:[],bestScore:0,bestSector:1,bestChain:0,bestLanding:"",pilot:"AAA"},
+  ok:true,
+  load(){
+    try{
+      const raw=window.localStorage.getItem(this.KEY);
+      if(raw){
+        const d=JSON.parse(raw);
+        if(d&&Array.isArray(d.board)) Object.assign(this.data,d);
+      }
+    }catch(e){ this.ok=false; }
+    return this.data;
+  },
+  flush(){
+    if(!this.ok) return;
+    try{ window.localStorage.setItem(this.KEY,JSON.stringify(this.data)); }
+    catch(e){ this.ok=false; }
+  },
+  // records that stand on their own, whether or not the score makes the board
+  noteRun(g,p){
+    const d=this.data;
+    d.bestScore=Math.max(d.bestScore,Math.floor(g.score));
+    d.bestSector=Math.max(d.bestSector,g.lvl);
+    d.bestChain=Math.max(d.bestChain,g.bestCombo);
+    this.flush();
+  },
+  qualifies(score){
+    const b=this.data.board;
+    return score>0&&(b.length<5||score>b[b.length-1].score);
+  },
+  submit(entry){
+    const b=this.data.board;
+    b.push(entry);
+    b.sort((x,y)=>y.score-x.score);
+    b.length=Math.min(b.length,5);
+    this.data.pilot=entry.name;
+    this.flush();
+    return b.indexOf(entry);
+  }
+};
+const board=Save.load().board;
 function popup(txt){ popups.push({txt,t0:performance.now()}); if(popups.length>5)popups.shift(); }
 const P={x:0,y:120,z:0,pz:0,vx:0,vy:0,speed:SPEED0,lives:3,invuln:0,dist:0,roll:0};
 
@@ -600,6 +646,84 @@ const Terrain={
 };
 Terrain.build();
 
+// ---------- contact shadows ----------
+// No shadow maps: the sun is fixed per sector, so a soft blob laid on the
+// ground under each object (and an aeroplane-shaped one under you) grounds
+// everything for a fraction of the cost.
+const shadowTex=(()=>{
+  const c=document.createElement("canvas"); c.width=64; c.height=64;
+  const x=c.getContext("2d");
+  const g=x.createRadialGradient(32,32,2,32,32,31);
+  g.addColorStop(0,"rgba(0,0,0,0.85)");
+  g.addColorStop(0.45,"rgba(0,0,0,0.55)");
+  g.addColorStop(1,"rgba(0,0,0,0)");
+  x.fillStyle=g; x.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+})();
+const planeShadowTex=(()=>{
+  const c=document.createElement("canvas"); c.width=128; c.height=128;
+  const x=c.getContext("2d");
+  x.fillStyle="rgba(0,0,0,0.85)";
+  x.translate(64,64);
+  x.beginPath();                                   // wing
+  x.moveTo(-56,-5); x.lineTo(56,-5); x.lineTo(52,7); x.lineTo(-52,7); x.closePath(); x.fill();
+  x.beginPath();                                   // fuselage
+  x.moveTo(-7,-44); x.lineTo(7,-44); x.lineTo(9,46); x.lineTo(-9,46); x.closePath(); x.fill();
+  x.beginPath();                                   // tailplane
+  x.moveTo(-22,38); x.lineTo(22,38); x.lineTo(19,48); x.lineTo(-19,48); x.closePath(); x.fill();
+  x.filter="blur(2px)";
+  const t=new THREE.CanvasTexture(c);
+  return t;
+})();
+const Shadows={
+  plane:null, sunX:0, sunZ:0, stretch:1, alpha:0.34,
+  build(){
+    const geo=new THREE.PlaneGeometry(1,1); geo.rotateX(-Math.PI/2);
+    this.plane=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({map:planeShadowTex,
+      transparent:true,opacity:0.34,depthWrite:false,fog:true,
+      polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4}));
+    this.plane.renderOrder=1;
+    this.plane.visible=false;
+    scene.add(this.plane);
+  },
+  // recomputed when the sun moves, i.e. once per sector
+  sun(){
+    const y=Math.max(0.16,SUNDIR.y);
+    this.sunX=-SUNDIR.x/y; this.sunZ=-SUNDIR.z/y;      // ground offset per metre of height
+    this.stretch=clamp(1/y,1,2.6);
+    this.alpha=clamp(0.16+y*0.30,0.14,0.42);
+    if(this.plane) this.plane.material.opacity=this.alpha+0.06;
+  },
+  // where an object of this height throws its shadow, capped so a low sun
+  // does not fling it into the next county
+  offX(h){ return clamp(this.sunX*h,-h*2.2,h*2.2); },
+  offZ(h){ return clamp(this.sunZ*h,-h*2.2,h*2.2); },
+  // The sun sits ahead of you in every sector — that is where the glare and the
+  // god rays come from — so an honest projection would throw your own shadow
+  // permanently behind the tail, where the cockpit hides it. Instead it is cast
+  // forward at a fixed rake that lands it just above the cowling, which is where
+  // a real one is when the sun is low behind you. The lateral throw stays true.
+  FORWARD:5.2,
+  update(){
+    const m=this.plane;
+    if(!m) return;
+    const flying=(state===S.PLAY||state===S.TAKEOFF||state===S.ROLLOUT||state===S.DYING);
+    const gh=onField(P.x,P.z)?af.y:groundH(P.x,P.z);
+    const agl=P.y-gh;
+    if(!flying||agl>220||agl<-2){ m.visible=false; return; }
+    const gx=P.x+clamp(this.sunX*agl,-agl*1.1,agl*1.1);
+    const gz=P.z-this.FORWARD*agl;
+    const gy=onField(gx,gz)?af.y:groundH(gx,gz);
+    m.position.set(gx,gy+0.5,gz);
+    const spread=1+agl/190;                             // penumbra opens with height
+    m.scale.set(16*spread*Math.max(0.30,Math.cos(P.roll)),1,16*spread*1.35);
+    m.rotation.y=-P.roll*0.35;
+    m.material.opacity=(this.alpha+0.18)*clamp(1-agl/260,0.12,1);
+    m.visible=true;
+  }
+};
+Shadows.build();
+
 // ---------- scatter: woodland, hedgerows, rocks, farmsteads ----------
 // A deterministic cell grid, rebuilt whenever the aircraft crosses a cell
 // boundary. Every item sits on the same height field used for collision.
@@ -607,7 +731,7 @@ const CELL=95, SCX=17, SCZ=26;
 const Scatter={
   cx:1e9, cz:1e9,
   m:{}, n:{},
-  caps:{trunk:1600,canopy:1600,bush:1000,rock:320,wall:220,roof:220,hay:220},
+  caps:{trunk:1600,canopy:1600,bush:1000,rock:320,wall:220,roof:220,hay:220,shade:900},
   dummy:new THREE.Object3D(), col:new THREE.Color(),
   build(){
     const mk=(geo,mat,cap)=>{
@@ -631,6 +755,16 @@ const Scatter={
     this.m.wall  =mk(wallGeo,  new THREE.MeshLambertMaterial({color:0xffffff}),this.caps.wall);
     this.m.roof  =mk(roofGeo,  new THREE.MeshLambertMaterial({color:0xffffff}),this.caps.roof);
     this.m.hay   =mk(hayGeo,   new THREE.MeshLambertMaterial({color:0xc9a961}),this.caps.hay);
+    const shadeGeo=new THREE.PlaneGeometry(1,1); shadeGeo.rotateX(-Math.PI/2);
+    this.m.shade=mk(shadeGeo,new THREE.MeshBasicMaterial({map:shadowTex,transparent:true,
+      opacity:0.34,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,
+      polygonOffsetUnits:-4}),this.caps.shade);
+    this.m.shade.renderOrder=1;
+  },
+  // a blob on the deck under something of this size, thrown away from the sun
+  shade(x,z,y,r,h){
+    this.put("shade",x+Shadows.offX(h),y+0.35,z+Shadows.offZ(h),
+             r*2,1,r*2*Shadows.stretch);
   },
   put(key,x,y,z,sx,sy,sz,ry,color){
     const i=this.n[key];
@@ -654,6 +788,7 @@ const Scatter={
     this.put("trunk",x,y,z,s*1.1,4.2*s,s*1.1);
     const cols=[0x2c5a2e,0x35662f,0x27522c,0x3f6b34,0x46703a];
     this.put("canopy",x,y+4.0*s+2.4*s,z,3.0*s,3.6*s,3.0*s,r()*3,cols[(r()*5)|0]);
+    this.shade(x,z,y,3.4*s,6.4*s);
   },
   cell(gx,gz){
     const seed=(gx*73856093)^(gz*19349663);
@@ -715,6 +850,7 @@ const Scatter={
       const ry=(r()<0.5?0:Math.PI/2)+(r()-0.5)*0.3;
       this.put("wall",bxp,by,bzp,w,h,d,ry,walls[(r()*4)|0]);
       this.put("roof",bxp,by+h+ (w*0.45), bzp, w*1.12, w*1.12, d*1.02, ry, roofs[(r()*4)|0]);
+      this.shade(bxp,bzp,by,Math.max(w,d)*0.62,h*1.3);
     }
   },
   rebuild(){
@@ -804,6 +940,20 @@ const ringStripeTex=(()=>{
   t.encoding=THREE.sRGBEncoding;
   return t;
 })();
+const ringGoldTex=(()=>{
+  const c=document.createElement("canvas"); c.width=128; c.height=16;
+  const x=c.getContext("2d");
+  for(let i=0;i<8;i++){
+    const g=x.createLinearGradient(i*16,0,i*16,16);
+    if(i%2){ g.addColorStop(0,"#ffd75e"); g.addColorStop(0.45,"#d8930f"); g.addColorStop(1,"#8a5c08"); }
+    else   { g.addColorStop(0,"#fff3c8"); g.addColorStop(1,"#e6c878"); }
+    x.fillStyle=g; x.fillRect(i*16,0,16,16);
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  t.encoding=THREE.sRGBEncoding;
+  return t;
+})();
 const RING_R=13.5, RING_HIT=13.0;
 const Rings={
   list:[], nextZ:0, seq:0,
@@ -840,7 +990,7 @@ const Rings={
     g.add(balloons);
     scene.add(g);
     return {g,torus,inner,halo,mast,flag,balloons,
-            active:false,hit:false,x:0,y:0,z:0,n:0,tall:false,fade:0};
+            active:false,hit:false,x:0,y:0,z:0,n:0,tall:false,gold:false,fade:0};
   },
   free(){
     for(const r of this.list) if(!r.active) return r;
@@ -853,17 +1003,28 @@ const Rings={
       const r=this.free();
       this.seq++;
       const tall=this.seq%5===0;
-      const x=coursePathX(z)+(hash(this.seq*3.7)-0.5)*70;
+      // gold gates: worth treble, and never on the easy line — down in the
+      // hollows, out on a limb, close enough to the ground to make you think
+      const gold=!tall&&this.seq>2&&hash(this.seq*13.7+4.1)<0.26;
+      const x=coursePathX(z)+(hash(this.seq*3.7)-0.5)*(gold?300:70);
       const g=groundH(x,z);
       const y=tall ? g+110+hash(this.seq*5.1)*70
-                   : Math.max(g+30, g+30+hash(this.seq*7.3)*46);
+                   : (gold ? clearanceH(x,z)+19+hash(this.seq*9.3)*9
+                           : Math.max(g+30, g+30+hash(this.seq*7.3)*46));
       r.active=true; r.hit=false; r.fade=0;
-      r.x=x; r.y=y; r.z=z; r.n=this.seq; r.tall=tall;
+      r.x=x; r.y=y; r.z=z; r.n=this.seq; r.tall=tall; r.gold=gold;
       r.g.position.set(x,y,z);
       r.g.rotation.z=0;
       r.g.scale.set(1,1,1);
+      r.torus.material.map=gold?ringGoldTex:ringStripeTex;
       r.torus.material.color.set(0xffffff);
+      r.torus.material.needsUpdate=true;
+      r.inner.material.color.set(gold?0xfff0b0:0xfff0c4);
+      r.halo.material.color.set(gold?0xffc219:0xffd98a);
+      r.halo.scale.set(gold?68:52,gold?68:52,1);
+      r.flag.material.color.set(gold?0xe0a72c:0xd2452f);
       r.g.visible=true;
+      if(gold) G.gold++;
       const clear=y-RING_R-g;
       r.mast.visible=!tall;
       r.balloons.visible=tall;
@@ -905,13 +1066,15 @@ const Rings={
           G.combo=Math.min(8,G.combo+1);
           G.bestCombo=Math.max(G.bestCombo,G.combo);
           G.ringsHit++;
-          let pts=120*G.combo;
-          let txt="RING +"+pts;
-          if(d<4.5){ pts+=80; txt="BULLSEYE +"+pts; }
+          let pts=120*G.combo*(r.gold?3:1);
+          let txt=(r.gold?"GOLD GATE +":"RING +")+pts;
+          if(d<4.5){ pts+=r.gold?240:80; txt="BULLSEYE +"+pts; }
           G.score+=pts;
+          if(r.gold) G.goldHit++;
           popup(txt+(G.combo>1?"   x"+G.combo:""));
-          chime(760+G.combo*70);
-          burst(r.g.position,0xffe3a0,1.4);
+          if(r.gold){ chime(1040); setTimeout(()=>chime(1560),90); }
+          else chime(760+G.combo*70);
+          burst(r.g.position,r.gold?0xffd24a:0xffe3a0,r.gold?2.0:1.4);
         }else if(d<RING_HIT+22){
           if(G.combo>0) popup("MISSED — CHAIN BROKEN");
           G.combo=0; thud();
@@ -1538,6 +1701,7 @@ function applyTheme(lvl){
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
   sunLight.position.copy(SUNDIR).multiplyScalar(1400);
   sunGlow.material.opacity=td.glowO;
+  Shadows.sun();
   applyWeather(lvl);
 }
 
@@ -1911,21 +2075,36 @@ function updateDying(dt){
 function endGame(title,sub){
   state=S.OVER;
   G.score=Math.floor(G.score);
+  const wasBest=G.score>Save.data.bestScore;
+  Save.noteRun(G,P);
   document.getElementById("overTitle").innerHTML=title;
   document.getElementById("overSub").textContent=sub;
-  document.getElementById("finalScore").textContent=G.score.toLocaleString();
-  document.getElementById("finalRings").textContent=G.ringsHit+"/"+G.rings;
+  document.getElementById("finalScore").textContent=G.score.toLocaleString()+(wasBest?"  ★ BEST":"");
+  document.getElementById("finalRings").textContent=G.ringsHit+"/"+G.rings+
+    (G.goldHit?"  ("+G.goldHit+" gold)":"");
   document.getElementById("finalDist").textContent=(P.dist/1000).toFixed(2)+" km";
   document.getElementById("finalLvl").textContent=G.lvl;
-  const qualifies=G.score>0&&(board.length<5||G.score>board[board.length-1].score);
-  document.getElementById("entryRow").style.display=qualifies?"flex":"none";
+  document.getElementById("finalChain").textContent="x"+G.bestCombo;
+  document.getElementById("entryRow").style.display=Save.qualifies(G.score)?"flex":"none";
   renderSlots();
   renderBoard();
   show("overOverlay");
 }
-function renderBoard(){
+function renderBoard(highlight){
   const ol=document.getElementById("boardList");
-  ol.innerHTML=board.map(e=>"<li>"+e.name+" — "+e.score.toLocaleString()+" · S"+e.lvl+"</li>").join("");
+  ol.innerHTML=board.length
+    ? board.map((e,i)=>"<li"+(i===highlight?' style="color:#c9ffd0"':"")+">"+e.name+" &mdash; "+
+        e.score.toLocaleString()+" &middot; S"+e.lvl+"</li>").join("")
+    : '<li style="opacity:.6;list-style:none">no logbook entries yet</li>';
+  const bl=document.getElementById("bestLine");
+  if(bl){
+    const d=Save.data;
+    bl.innerHTML=d.bestScore
+      ? "Best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+d.bestSector+
+        "</b> &middot; chain <b>x"+d.bestChain+"</b>"
+      : "";
+    bl.style.display=d.bestScore?"block":"none";
+  }
 }
 function levelClear(){
   state=S.CLEAR;
@@ -1935,6 +2114,7 @@ function levelClear(){
   document.getElementById("clearLvl").textContent=G.lvl;
   document.getElementById("bLand").textContent=G.landLabel||"";
   document.getElementById("bRings").textContent=G.ringsHit+"/"+G.rings+"  (+"+rb.toLocaleString()+")";
+  document.getElementById("bChain").textContent="x"+G.bestCombo;
   document.getElementById("bFuel").textContent="+"+bf.toLocaleString();
   document.getElementById("bHull").textContent="+"+bh.toLocaleString();
   document.getElementById("clearScore").textContent=G.score.toLocaleString();
@@ -2175,7 +2355,7 @@ function resetWorld(){
   shake=0;flash=0;whiteout=0;
   dents.length=0;splats.length=0;popups.length=0;gDrops.length=0;
   G.score=0;G.combo=0;G.bestCombo=0;G.fuel=100;G.lvl=1;G.levelEnd=5400;
-  G.rings=0;G.ringsHit=0;G.landLabel="";
+  G.rings=0;G.ringsHit=0;G.gold=0;G.goldHit=0;G.landLabel="";
   af.active=false;af.phase=0;af.group.visible=false;
   applyTheme(1);
   Airfield.departure();          // sets P to the holding point; do this before the world
@@ -2691,8 +2871,9 @@ function drawHUD(t){
     for(const r of Rings.list){                    // gates
       if(!r.active||r.z>P.z||P.z-r.z>RANGE)continue;
       const p=map(r.x,r.z);
-      hctx.strokeStyle=r.hit?"#3f8f4f":"#c33a28";hctx.lineWidth=1.6;
-      hctx.beginPath();hctx.arc(p.x,p.y,2.6,0,7);hctx.stroke();
+      hctx.strokeStyle=r.hit?"#3f8f4f":(r.gold?"#c08a12":"#c33a28");
+      hctx.lineWidth=r.gold?2.2:1.6;
+      hctx.beginPath();hctx.arc(p.x,p.y,r.gold?3.4:2.6,0,7);hctx.stroke();
     }
     hctx.fillStyle="#2f7f4f";                       // fuel
     for(const f of Fuel.list){
@@ -2849,16 +3030,24 @@ function drawHUD(t){
         let sx=(_mark.x*0.5+0.5)*W, sy=(1-(_mark.y*0.5+0.5))*H;
         const off=sx<W*0.07||sx>W*0.93||sy<H*0.16||sy>H*0.52;
         sx=clamp(sx,W*0.07,W*0.93); sy=clamp(sy,H*0.16,H*0.52);
-        const rr=Math.max(14,H*0.038)*(1+0.10*Math.sin(t*0.008));
-        hctx.strokeStyle=off?"#ffae3a":"#fff0c4";hctx.lineWidth=2.6;
+        const rr=Math.max(14,H*0.038)*(1+0.10*Math.sin(t*0.008))*(g.gold?1.18:1);
+        const col=g.gold?"#ffd24a":(off?"#ffae3a":"#fff0c4");
+        hctx.strokeStyle=col;hctx.lineWidth=g.gold?3.4:2.6;
         hctx.beginPath();
         hctx.moveTo(sx,sy-rr);hctx.lineTo(sx+rr,sy);
         hctx.lineTo(sx,sy+rr);hctx.lineTo(sx-rr,sy);
         hctx.closePath();hctx.stroke();
-        hctx.fillStyle=off?"#ffae3a":"#fff0c4";
+        if(g.gold){                       // second ring, so it reads at a glance
+          hctx.lineWidth=1.4;
+          hctx.beginPath();
+          hctx.moveTo(sx,sy-rr*0.62);hctx.lineTo(sx+rr*0.62,sy);
+          hctx.lineTo(sx,sy+rr*0.62);hctx.lineTo(sx-rr*0.62,sy);
+          hctx.closePath();hctx.stroke();
+        }
+        hctx.fillStyle=col;
         hctx.font="700 "+Math.max(10,H*0.022)+"px ui-monospace,Menlo,Consolas,monospace";
         hctx.textAlign="center";hctx.textBaseline="middle";
-        hctx.fillText("GATE "+Math.max(0,Math.round(P.z-g.z))+"m",sx,sy+rr+H*0.028);
+        hctx.fillText((g.gold?"GOLD ":"GATE ")+Math.max(0,Math.round(P.z-g.z))+"m",sx,sy+rr+H*0.028);
       }
     }
   }
@@ -2997,6 +3186,7 @@ function frame(t){
   renderFrame(t);
 }
 function renderFrame(t){
+  Shadows.update();
   const bank=state===S.DYING?Math.sin(dying.roll)*0.95:P.roll;
   camera.position.set(P.x,P.y,P.z);
   if(state===S.DYING){
@@ -3080,7 +3270,7 @@ document.getElementById("contBtn").addEventListener("click",()=>{
   nextSector();
   hideAll();state=S.TAKEOFF;readyT=1.6;checkOrient();
 });
-let pilotLetters=["A","A","A"];
+let pilotLetters=(Save.data.pilot||"AAA").split("");
 function renderSlots(){
   pilotLetters.forEach((L,i)=>document.getElementById("sl"+i).textContent=L);
 }
@@ -3094,11 +3284,10 @@ document.getElementById("entryRow").addEventListener("click",e=>{
 });
 document.getElementById("saveScore").addEventListener("click",()=>{
   const name=pilotLetters.join("");
-  board.push({name,score:G.score,lvl:G.lvl});
-  board.sort((a,b)=>b.score-a.score);
-  board.length=Math.min(board.length,5);
+  const at=Save.submit({name,score:G.score,lvl:G.lvl,rings:G.ringsHit,chain:G.bestCombo});
   document.getElementById("entryRow").style.display="none";
-  renderBoard();
+  renderBoard(at);
+  chime(980);
 });
 document.getElementById("pauseBtn").addEventListener("click",()=>{
   if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
@@ -3147,6 +3336,7 @@ function updateAttract(dt){
 resetWorld();
 popups.length=0;
 attractOn=true;
+renderBoard();            // show the logbook bests on the title card
 
 // ---------- test hook: drives the game from a headless browser ----------
 window.SKY={
@@ -3177,6 +3367,9 @@ window.SKY={
   },
   aimAt(x,y){ P.x=x; P.y=y; },
   hold(on){ simHold=!!on; },
+  Save,
+  courseX:z=>coursePathX(z),
+  groundAt:(x,z)=>groundH(x,z),
   drawHUD:t=>drawHUD(t),
   setMuted(m){ setMuted(m); },
   fx(on){ postOn=on; }
