@@ -33,8 +33,10 @@ tap **Enable tilt & fly**, and can be re-taken from the pause screen.
 - **Hazards** from sector 2: pylon cables, guyed masts, wind turbines, balloons and
   bird flocks. Terrain and treetops are always live.
 - **Hedge hopping** under 45 m AGL pays a trickle bonus. So does staying alive.
-- **The runway** ends every sector. Line up on the centreline, ride the 5-degree
-  slope, and touch down softly and straight:
+- **The runway** ends every sector. It is put down while still over the horizon,
+  so it fades up out of the haze as you close on it; the approach call comes at
+  1100 m. Line up on the centreline, ride the 5-degree slope, and touch down
+  softly and straight:
 
   | Result | Requirement | Bonus |
   | --- | --- | --- |

@@ -421,7 +421,8 @@ let curTheme=0, TH=THEMES[0];
 // One pure function drives geometry, scatter placement and collision, so
 // what you see is exactly what you hit.
 const af={active:false,x:0,z:0,y:0,len:1000,wid:64,group:null,
-          phase:0,rollT:0,strobes:null,papi:null,sock:null,windsockPivot:null};
+          phase:0,seen:false,rollT:0,strobes:null,papi:null,edge:null,
+          windsockPivot:null};
 function baseH(x,z){
   const f=TH.f;
   let h =vnoise(x*0.00072*f, z*0.00072*f);
@@ -457,7 +458,7 @@ function clearanceH(x,z){
 }
 
 // ---------- terrain tiles (pooled, recycled around the aircraft) ----------
-const TILE=420, TSEG=14, GX=7, GZ=9;
+const TILE=420, TSEG=14, GX=7, GZ=10;
 const Terrain={
   tiles:[], water:null, cx:1e9, cz:1e9, mat:null,
   build(){
@@ -848,6 +849,7 @@ const Rings={
   spawnAhead(){
     while(this.nextZ>P.z-VIEW){
       const z=this.nextZ;
+      if(Airfield.reserved(z)) break;
       const r=this.free();
       this.seq++;
       const tall=this.seq%5===0;
@@ -879,7 +881,7 @@ const Rings={
     this.nextZ=P.z-520; this.seq=0;
   },
   update(dt){
-    if(!af.active) this.spawnAhead();
+    this.spawnAhead();
     const now=performance.now();
     for(const r of this.list){
       if(!r.active) continue;
@@ -969,10 +971,11 @@ const Fuel={
     const f=this.make(); this.list.push(f); return f; },
   reset(){ for(const f of this.list){ f.active=false; f.g.visible=false; } this.nextZ=P.z-900; },
   update(dt){
-    if(!af.active){
+    {
       while(this.nextZ>P.z-VIEW){
-        const f=this.free();
         const z=this.nextZ;
+        if(Airfield.reserved(z)) break;
+        const f=this.free();
         const x=coursePathX(z)+(Math.random()-0.5)*260;
         f.x=x; f.z=z; f.y=groundH(x,z)+60+Math.random()*90;
         f.active=true; f.g.visible=true;
@@ -1193,6 +1196,7 @@ const Haz={
     if(G.lvl<2) return;
     while(this.nextZ>P.z-VIEW){
       const z=this.nextZ;
+      if(Airfield.reserved(z)) break;
       const r=Math.random();
       const tier=Math.min(1,(G.lvl-1)/4);
       if(r<0.30){ const h=this.freeOf(this.lines,()=>this.makeLine(),6);      if(h) this.placeLine(h,z); }
@@ -1208,7 +1212,7 @@ const Haz={
       for(const h of l) if(h.active&&Math.abs(h.z-z)<rad){ h.active=false; h.g.visible=false; }
   },
   update(dt){
-    if(!af.active) this.spawnAhead();
+    this.spawnAhead();
     const hitR=PR;
     let warn=false;
     for(const h of this.lines){
@@ -1409,17 +1413,28 @@ const Airfield={
     af.group.position.set(af.x,af.y,af.z);
     af.group.visible=true;
   },
-  activate(){
-    af.active=true; af.phase=1; af.rollT=0;
+  // Put the field down while it is still over the horizon: beyond the terrain
+  // ring and beyond fog, so it is cut into the ground as those tiles load and
+  // simply fades up out of the haze instead of snapping into existence.
+  reveal(){
+    af.active=true; af.phase=6; af.rollT=0; af.seen=false;
     this.place(clamp(coursePathX(P.z-(G.levelEnd-P.dist))*0.6,-260,260),
                P.z-(G.levelEnd-P.dist));
-    Haz.clearNear(af.z,af.len*0.5+900);
-    for(const r of Rings.list)                        // and no gates on short final
-      if(r.active&&Math.abs(r.z-af.z)<af.len*0.5+320){ r.active=false; r.g.visible=false; }
-    Terrain.regrade(af.z,af.len*0.5+400);
+    Terrain.regrade(af.z,af.len*0.5+400);   // no-op this far out; cheap insurance
     Scatter.rebuild();
+  },
+  beginApproach(){
+    af.phase=1;
+    Haz.clearNear(af.z,af.len*0.5+400);     // nothing should have spawned here anyway
+    for(const r of Rings.list)
+      if(r.active&&Math.abs(r.z-af.z)<af.len*0.5+320){ r.active=false; r.g.visible=false; }
     popup("FIELD IN SIGHT — RUNWAY 18");
     radioCall();
+  },
+  // is this stretch of ground reserved for the arrival field?
+  reserved(z){
+    if(!af.active||af.phase===4||af.phase===5) return false;   // departure strip is behind us
+    return z<af.z+af.len*0.5+500;
   },
   // put the aeroplane at the holding point of a departure strip
   departure(){
@@ -2103,7 +2118,12 @@ function update(dt,t){
   if(af.active&&af.phase===5&&P.z<af.z-af.len*0.5-560) Airfield.deactivate();
 
   // the sector finale
-  if(!af.active&&P.dist>G.levelEnd-1100) Airfield.activate();
+  if(!af.active&&P.dist>G.levelEnd-4300) Airfield.reveal();
+  if(af.active&&af.phase===6){
+    const toThresh=P.z-(af.z+af.len*0.5);
+    if(!af.seen&&toThresh<2400){ af.seen=true; popup("AIRFIELD AHEAD"); }
+    if(toThresh<1100) Airfield.beginApproach();
+  }
   if(af.active&&af.phase===1){
     P.speed+=(54-P.speed)*Math.min(1,dt*0.7);          // throttle back for the approach
     if(P.z<af.z-af.len*0.5-60){                        // flew the length of it and never landed
@@ -2737,7 +2757,7 @@ function drawHUD(t){
     const lamps=[
       ["FUEL","#ffae3a",G.fuel<20&&Math.floor(t/300)%2===0],
       ["TERR","#ff5a4e",warnObst&&Math.floor(t/220)%2===0],
-      ["GEAR","#8fe8a0",af.active&&af.phase!==5],
+      ["GEAR","#8fe8a0",af.active&&(af.phase===1||af.phase===2||af.phase===4)],
     ];
     const lw=W*0.036, lh=ph*0.16;
     for(let i=0;i<3;i++){
