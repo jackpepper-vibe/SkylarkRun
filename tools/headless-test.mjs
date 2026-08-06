@@ -1,0 +1,96 @@
+/*
+ * Headless smoke test for Skylark Run.
+ *
+ *   node tools/headless-test.mjs
+ *
+ * Drives the game through window.SKY without waiting on frames, so the result
+ * is deterministic and does not depend on the (software) GPU in headless mode.
+ * Checks: no console errors, the ring course scores, and every exit from the
+ * approach — greased landing, missed approach, heavy arrival.
+ *
+ * Playwright lives with the shared screenshot tool rather than in this repo,
+ * so it is imported by absolute path.
+ */
+const PLAYWRIGHT = 'file:///C:/Claude/Tools/shot/node_modules/playwright/index.mjs';
+const { chromium } = await import(PLAYWRIGHT);
+import path from 'path';
+
+const url = 'file:///' + path.resolve(process.cwd(), 'index.html').replace(/\\/g, '/');
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const errors = [];
+page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
+await page.goto(url);
+await page.waitForTimeout(2500);
+
+let failed = 0;
+const check = (name, ok, detail) => {
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '   ' + detail : ''));
+  if (!ok) failed++;
+};
+
+// --- cost of a frame, GPU aside ---
+const cpu = await page.evaluate(() => {
+  const S = window.SKY;
+  S.play(); S.step(30);
+  let t0 = performance.now();
+  S.step(600, 0.016);
+  const upd = (performance.now() - t0) / 600;
+  t0 = performance.now();
+  for (let i = 0; i < 120; i++) S.drawHUD(performance.now());
+  return { update: +upd.toFixed(3), hud: +((performance.now() - t0) / 120).toFixed(3) };
+});
+check('frame cost under 4 ms', cpu.update + cpu.hud < 4,
+  'update ' + cpu.update + ' ms, cockpit ' + cpu.hud + ' ms');
+
+// --- the ring course scores ---
+const course = await page.evaluate(() => {
+  const S = window.SKY;
+  S.play();
+  for (let i = 0; i < 300; i++) {
+    const g = S.Rings.nextGate();
+    if (g) { S.P.x += (g.x - S.P.x) * 0.35; S.P.y += (g.g.position.y - S.P.y) * 0.35; }
+    const r = S.step(6);
+    if (r.state !== 1) return r;
+  }
+  return S.step(0);
+});
+check('gates register and score', course.score > 2000 && course.rings.split('/')[0] > 5, JSON.stringify(course));
+
+// --- flown onto the numbers ---
+const fly = (mode) => page.evaluate((mode) => {
+  const S = window.SKY;
+  S.approach();
+  for (let i = 0; i < 4000; i++) {
+    const af = S.af;
+    if (af.active && af.phase === 1) {
+      if (mode === 'high') { S.P.y = Math.max(S.P.y, af.y + 160); }
+      else {
+        S.P.x += (af.x - S.P.x) * 0.3;
+        if (mode === 'heavy' && S.P.z - af.z < af.len * 0.5) { S.P.vy = -30; S.P.y -= 3; }
+        else if (mode === 'good') {
+          const aim = af.z - af.len * 0.5 + 220;
+          const want = af.y + Math.max(1, S.P.z - aim) * Math.tan(5 * Math.PI / 180);
+          S.P.vy = (want - S.P.y) * 0.9 - 3;
+          S.P.y += (want - S.P.y) * 0.3;
+        }
+      }
+    }
+    const r = S.step(2);
+    if (r.state === 4 || r.state === 3) return r;
+  }
+  return { state: -1 };
+}, mode);
+
+const good = await fly('good');
+check('a flown approach lands and clears', good.state === 4 && /GREASED|GOOD/.test(good.label), JSON.stringify(good));
+const high = await fly('high');
+check('staying high forces a go-around', high.state === 4 && /MISSED/.test(high.label), JSON.stringify(high));
+const heavy = await fly('heavy');
+check('an arrival rather than a landing costs the airframe', heavy.state === 3, JSON.stringify(heavy));
+
+check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
+await browser.close();
+console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
+process.exit(failed ? 1 : 0);
