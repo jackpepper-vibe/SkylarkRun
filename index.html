@@ -93,9 +93,10 @@
   <div class="sub">open cockpit &middot; open country</div>
   <div class="placard">
     <b>TILT</b> to bank &middot; dive &middot; climb<br>
+    Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>
     Thread the <b>rings</b> for points &middot; chain them for multipliers<br>
     Fuel balloons top the tank &middot; pylons, masts &amp; turbines bite<br>
-    Every sector ends on a <b>runway</b> &mdash; grease it for the big bonus
+    Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out
   </div>
   <button id="startBtn" class="btn">&#9654;&ensp;Enable tilt &amp; fly</button>
   <div class="tiny">Landscape required &middot; headphones recommended &middot; desktop: WASD / arrows</div>
@@ -168,7 +169,9 @@ const MIN_CLEAR=7;                // metres of air you need under the wheels
 const CANOPY_H=17;                // treetop height inside woodland
 
 // ---------- state ----------
-const S={MENU:0,PLAY:1,PAUSE:2,OVER:3,CLEAR:4,DYING:5,ROLLOUT:6};
+// af.phase: 0 idle · 1 approach · 2 rollout · 3 approach over · 4 take-off roll · 5 climb-out
+const S={MENU:0,PLAY:1,PAUSE:2,OVER:3,CLEAR:4,DYING:5,ROLLOUT:6,TAKEOFF:7};
+const TO={vr:50,vrT:0,rotT:0,lifted:false};  // take-off: rotation speed, then the rotation
 let state=S.MENU, shake=0, flash=0, whiteout=0, tPrev=0;
 let dying={t:0,roll:0,title:"",sub:""};
 let scarfPhase=0;
@@ -580,6 +583,17 @@ const Terrain={
     this.refresh(false);
     const step=200;
     this.water.position.set(Math.round(P.x/step)*step, TH.water, Math.round(P.z/step)*step);
+  },
+  // re-cut only the tiles around a point: moving the airfield re-grades the
+  // ground under it, and a full refill would show as a hitch
+  regrade(zc,rad){
+    for(const t of this.tiles){
+      if(!t.key) continue;
+      const p=t.key.split("|");
+      const ix=+p[0], iz=+p[1];
+      if(Math.abs(iz*TILE-zc)>rad+TILE) continue;
+      this.fill(t,ix,iz);
+    }
   },
   reset(){ this.refresh(true); this.update(); }
 };
@@ -1387,45 +1401,63 @@ const Airfield={
     scene.add(g);
     af.group=g;
   },
-  activate(){
-    af.active=true; af.phase=1; af.touched=false; af.rollT=0;
-    af.x=clamp(coursePathX(P.z-(G.levelEnd-P.dist))*0.6,-260,260);
-    af.z=P.z-(G.levelEnd-P.dist);
-    // grade the field to the average of the land it sits on
-    let sum=0,n=0;
+  place(x,z){
+    af.x=x; af.z=z;
+    let sum=0,n=0;                                    // grade to the mean of the land beneath
     for(let dz=-af.len/2;dz<=af.len/2;dz+=100){ sum+=baseH(af.x,af.z+dz); n++; }
     af.y=Math.max(TH.water+6,sum/n);
     af.group.position.set(af.x,af.y,af.z);
     af.group.visible=true;
+  },
+  activate(){
+    af.active=true; af.phase=1; af.rollT=0;
+    this.place(clamp(coursePathX(P.z-(G.levelEnd-P.dist))*0.6,-260,260),
+               P.z-(G.levelEnd-P.dist));
     Haz.clearNear(af.z,af.len*0.5+900);
     for(const r of Rings.list)                        // and no gates on short final
       if(r.active&&Math.abs(r.z-af.z)<af.len*0.5+320){ r.active=false; r.g.visible=false; }
-    Terrain.refresh(true);
+    Terrain.regrade(af.z,af.len*0.5+400);
     Scatter.rebuild();
     popup("FIELD IN SIGHT — RUNWAY 18");
     radioCall();
   },
-  deactivate(){
-    af.active=false; af.phase=0;
-    af.group.visible=false;
-    Terrain.refresh(true);
+  // put the aeroplane at the holding point of a departure strip
+  departure(){
+    af.active=true; af.phase=4; af.rollT=0;
+    TO.lifted=false; TO.rotT=0; TO.vrT=0;
+    this.place(clamp(coursePathX(P.z-af.len*0.5)*0.6,-260,260), P.z-af.len*0.5+40);
+    P.x=af.x; P.z=af.z+af.len*0.5-80; P.y=af.y+2.4;
+    P.vx=0; P.vy=0; P.roll=0; P.speed=0; P.pz=P.z;
+    Terrain.regrade(af.z,af.len*0.5+400);
     Scatter.rebuild();
   },
+  deactivate(){
+    const z=af.z;
+    af.active=false; af.phase=0;
+    af.group.visible=false;
+    Terrain.regrade(z,af.len*0.5+400);
+    Scatter.rebuild();
+  },
+  // the aiming point: 200 m in from the threshold, leaving the strip for the roll
+  aimZ(){ return af.z+af.len*0.5-200; },
   // how far above the ideal 5-degree glide path we are, in metres
   glideError(){
-    const aim=af.z-af.len*0.5+220;             // touchdown target
-    const run=Math.max(1,P.z-aim);
+    const run=Math.max(1,P.z-this.aimZ());
     return (P.y-af.y)-run*Math.tan(5*Math.PI/180);
   },
   update(dt,t){
     if(!af.active) return;
-    const flashI=7-Math.floor(t/85)%8;
-    af.strobes.forEach((s,i)=>{ s.material.opacity=(i===flashI)?1:0.10; });
-    const err=this.glideError();
-    af.papi.forEach((m,i)=>{                    // two white two red = on slope
-      const th=(i-1.5)*11;
-      m.material.color.set(err>th?0xffffff:0xff4436);
-    });
+    if(af.phase===1){                           // approach aids, lit for arrivals only
+      const flashI=7-Math.floor(t/85)%8;
+      af.strobes.forEach((s,i)=>{ s.material.opacity=(i===flashI)?1:0.10; });
+      const err=this.glideError();
+      af.papi.forEach((m,i)=>{                  // two white two red = on slope
+        const th=(i-1.5)*11;
+        m.material.color.set(err>th?0xffffff:0xff4436);
+      });
+    }else{
+      af.strobes.forEach(s=>{ s.material.opacity=0; });
+    }
     if(af.windsockPivot) af.windsockPivot.rotation.y=Math.PI/2+Math.sin(t*0.0013)*0.35+wind*0.02;
   }
 };
@@ -1621,7 +1653,7 @@ window.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
 window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 let touchActive=false,tSX=0,tSY=0,tDX=0,tDY=0;
 window.addEventListener("touchstart",e=>{
-  if(state!==S.PLAY&&state!==S.ROLLOUT)return;
+  if(state!==S.PLAY&&state!==S.ROLLOUT&&state!==S.TAKEOFF)return;
   touchActive=true;tSX=e.touches[0].clientX;tSY=e.touches[0].clientY;tDX=0;tDY=0;
 },{passive:true});
 window.addEventListener("touchmove",e=>{
@@ -1922,9 +1954,11 @@ function touchdown(){
 }
 function updateRollout(dt){
   const inp=readInput();
-  P.vx+=((inp.steer*26)-P.vx)*Math.min(1,dt*4.5);
+  // rudder authority bleeds away with speed, as it does on a real landing roll
+  P.vx+=((inp.steer*(9+P.speed*0.30))-P.vx)*Math.min(1,dt*4.0);
   P.x+=P.vx*dt;
-  P.speed=Math.max(0,P.speed-(24+P.speed*0.30)*dt);
+  // aerodynamic drag first, wheel brakes taking over as she slows: ~250 m of roll
+  P.speed=Math.max(0,P.speed-(3.2+P.speed*0.070)*dt);
   P.pz=P.z;
   P.z-=P.speed*dt; P.dist+=P.speed*dt;
   P.y=af.y+2.4;
@@ -1943,9 +1977,62 @@ function updateRollout(dt){
     popup("OVERRUN"); crashSound(); shake=1;
     levelClear(); return;
   }
-  if(P.speed<7){
+  if(P.speed<3.5){
+    P.speed=0;
     popup("WHEELS STOPPED");
     levelClear();
+  }
+}
+
+// ---------- take-off: full power, hold the centreline, rotate at Vr ----------
+function updateTakeoff(dt){
+  const inp=readInput();
+  af.rollT+=dt;
+  P.pz=P.z;
+  if(!TO.lifted){
+    // rudder holds the centreline; it bites harder as the tail comes up
+    P.vx+=((inp.steer*(7+P.speed*0.26))-P.vx)*Math.min(1,dt*4.0);
+    P.roll*=Math.exp(-4*dt);
+    P.y=af.y+2.4; P.vy=0;
+    shake=Math.min(0.5,0.04+P.speed*0.0026);          // the strip drumming through the gear
+  }else{
+    TO.rotT+=dt;
+    P.vy=Math.min(24,7+TO.rotT*15);                   // she unsticks, then climbs away
+    P.y+=P.vy*dt;
+    P.vx+=((inp.steer*34)-P.vx)*Math.min(1,dt*3.5);
+    P.roll+=((inp.steer*0.26)-P.roll)*Math.min(1,dt*3.0);
+    shake=Math.max(0,shake-dt*2.0);
+  }
+  P.x+=P.vx*dt;
+  // full throttle; on the ground she will not run away much past Vr
+  const vMax=TO.lifted?SPEED_MAX:TO.vr*1.18;
+  P.speed=Math.min(vMax,P.speed+Math.max(2.4,11.5*(1-P.speed/(SPEED_MAX*1.05)))*dt);
+  P.z-=P.speed*dt;                                    // the ground roll is not sector distance
+  flash=Math.max(0,flash-dt*2.5);
+  Terrain.update(); Scatter.update(); Clouds.update(); updateBursts();
+
+  const runLeft=P.z-(af.z-af.len*0.5);
+  if(!TO.lifted){
+    if(Math.abs(P.x-af.x)>af.wid*0.5+2){
+      crash("OFF THE STRIP");
+      TO.lifted=true; TO.rotT=0; P.vy=14; P.y=af.y+6; return;
+    }
+    if(runLeft<40){
+      crash("OVERRAN THE STRIP");
+      TO.lifted=true; TO.rotT=0; P.vy=14; P.y=af.y+6; return;
+    }
+    // rotate when the pilot eases back at Vr; past Vr she wants to fly anyway
+    if(P.speed>=TO.vr) TO.vrT+=dt;
+    if(P.speed>=TO.vr&&(inp.pitch>0.22||TO.vrT>2.0||runLeft<260)){
+      TO.lifted=true; TO.rotT=0;
+      popup("ROTATE"); chime(880);
+      burst(new THREE.Vector3(P.x,af.y+1,P.z+6),0xd8d0b8,1.0);
+    }
+  }else if(P.y>af.y+45){                              // clear of the strip: the sector begins
+    state=S.PLAY;
+    af.phase=5;
+    P.vy=Math.min(P.vy,MAX_VY*0.55);
+    popup("AIRBORNE — SECTOR "+G.lvl+" RUNNING");
   }
 }
 
@@ -2011,6 +2098,10 @@ function update(dt,t){
   const over=P.y-(MAX_Y-40);
   whiteout=clamp(over/55,0,1)*(weather===2?1:0.85);
 
+  // climbing away from the departure strip: let it go once it is behind us
+  // wait until the grading blend has already faded out, so nothing shifts underneath us
+  if(af.active&&af.phase===5&&P.z<af.z-af.len*0.5-560) Airfield.deactivate();
+
   // the sector finale
   if(!af.active&&P.dist>G.levelEnd-1100) Airfield.activate();
   if(af.active&&af.phase===1){
@@ -2032,7 +2123,7 @@ function update(dt,t){
   }
 
   // terrain, treetops and the ceiling
-  if(P.invuln<=0&&!(af.active&&af.phase===1&&onField(P.x,P.z))){
+  if(P.invuln<=0&&!(af.active&&(af.phase===1||af.phase===5)&&onField(P.x,P.z))){
     if(P.y<clearanceH(P.x,P.z)+MIN_CLEAR){
       const wood=isWood(P.x,P.z);
       crash(wood?"INTO THE TREES":"HIT THE DECK");
@@ -2067,33 +2158,43 @@ function resetWorld(){
   G.rings=0;G.ringsHit=0;G.landLabel="";
   af.active=false;af.phase=0;af.group.visible=false;
   applyTheme(1);
+  Airfield.departure();          // sets P to the holding point; do this before the world
   Terrain.reset();
   Scatter.reset();
   Clouds.reset();
   Rings.reset();
   Fuel.reset();
   Haz.reset();
+  clearOfDeparture();
   for(const b of bursts){b.active=false;b.sp.visible=false;}
-  P.y=Math.max(P.y,groundH(0,0)+120);
   popup("SECTOR 1: "+THEMES[curTheme].name+" · "+TODS[curTod].name);
+  popup("LINE UP — FULL POWER");
+}
+// nothing spawns over the departure strip or its climb-out
+function clearOfDeparture(){
+  const clear=af.z-af.len*0.5-320;
+  Rings.nextZ=Math.min(Rings.nextZ,clear);
+  Fuel.nextZ=Math.min(Fuel.nextZ,clear-260);
+  Haz.nextZ=Math.min(Haz.nextZ,clear-620);
 }
 function nextSector(){
   G.lvl++;
   G.fuel=100;
   P.lives=Math.min(3,P.lives+1);
-  G.levelEnd=P.dist+5000+700*G.lvl;
-  P.speed=Math.min(SPEED_MAX,SPEED0+9*(G.lvl-1));
   G.landLabel="";
-  Airfield.deactivate();
   applyTheme(G.lvl);
+  // taxi back out: a fresh strip a little way on, and the sector starts on the roll
+  P.z-=600;
+  Airfield.departure();
   Terrain.reset();
   Scatter.reset();
   Clouds.reset();
   Rings.reset();
   Fuel.reset();
   Haz.reset();
-  P.y=Math.max(P.y,groundH(P.x,P.z)+130);
-  P.vy=0; P.invuln=2;
+  clearOfDeparture();
+  G.levelEnd=P.dist+5000+700*G.lvl;
+  P.invuln=0;
   if(G.lvl===2)popup("NEW: PYLONS, MASTS & TURBINES");
   popup("SECTOR "+G.lvl+": "+THEMES[curTheme].name+" · "+TODS[curTod].name+
         (weather?" · "+WEATHERS[weather]:""));
@@ -2636,7 +2737,7 @@ function drawHUD(t){
     const lamps=[
       ["FUEL","#ffae3a",G.fuel<20&&Math.floor(t/300)%2===0],
       ["TERR","#ff5a4e",warnObst&&Math.floor(t/220)%2===0],
-      ["GEAR","#8fe8a0",af.active],
+      ["GEAR","#8fe8a0",af.active&&af.phase!==5],
     ];
     const lw=W*0.036, lh=ph*0.16;
     for(let i=0;i<3;i++){
@@ -2741,6 +2842,42 @@ function drawHUD(t){
       }
     }
   }
+  // ---- take-off guidance ----
+  if(state===S.TAKEOFF){
+    hctx.textAlign="center";hctx.textBaseline="middle";
+    hctx.globalAlpha=0.9;
+    hctx.fillStyle="#fff0c4";
+    hctx.font="800 "+Math.max(11,H*0.026)+"px ui-monospace,Menlo,Consolas,monospace";
+    hctx.fillText(readyT>0?"HOLDING — RUNWAY 18":(TO.lifted?"POSITIVE CLIMB":"TAKE-OFF ROLL"),W/2,H*0.075);
+    hctx.globalAlpha=1;
+    if(!TO.lifted){
+      // centreline bar, same instrument the landing uses
+      const bx=W*0.5, bw=W*0.24, by=H*0.135;
+      hctx.strokeStyle="rgba(20,16,10,0.45)";hctx.lineWidth=8;
+      hctx.beginPath();hctx.moveTo(bx-bw/2,by);hctx.lineTo(bx+bw/2,by);hctx.stroke();
+      hctx.strokeStyle="#e8dcc0";hctx.lineWidth=2;
+      hctx.beginPath();hctx.moveTo(bx,by-7);hctx.lineTo(bx,by+7);hctx.stroke();
+      const dx=P.x-af.x;
+      const px2=bx+clamp(dx/50,-1,1)*(bw/2);
+      hctx.fillStyle=Math.abs(dx)<10?"#8fe8a0":"#ffae3a";
+      hctx.beginPath();hctx.arc(px2,by,6,0,7);hctx.fill();
+      // speed building toward Vr
+      const sw=W*0.30, sx=W*0.5-sw/2, sy=H*0.175;
+      hctx.fillStyle="rgba(20,16,10,0.45)";hctx.fillRect(sx,sy,sw,7);
+      hctx.fillStyle="#d9a441";hctx.fillRect(sx,sy,sw*clamp(P.speed/TO.vr,0,1),7);
+      hctx.fillStyle="#e8dcc0";hctx.fillRect(sx+sw-2,sy-4,2,15);
+      hctx.font="700 "+Math.max(10,H*0.022)+"px ui-monospace,Menlo,Consolas,monospace";
+      hctx.fillStyle="#fff0c4";
+      const runLeft=Math.max(0,Math.round(P.z-(af.z-af.len*0.5)));
+      hctx.fillText(P.speed>=TO.vr?"Vr — EASE BACK":"Vr "+Math.round(TO.vr*3.6)+" km/h   STRIP "+runLeft+" m",
+        W/2,sy+H*0.045);
+      if(P.speed>=TO.vr&&Math.floor(t/220)%2===0){
+        hctx.fillStyle="#8fe8a0";
+        hctx.font="800 "+Math.max(16,H*0.048)+"px ui-monospace,Menlo,Consolas,monospace";
+        hctx.fillText("ROTATE",W/2,H*0.30);
+      }
+    }
+  }
   // ---- landing guidance ----
   if((state===S.PLAY||state===S.ROLLOUT)&&af.active&&af.phase<3){
     hctx.textAlign="center";hctx.textBaseline="middle";
@@ -2828,6 +2965,10 @@ function frame(t){
     if(readyT>0)readyT-=dt;
     else update(dt,t);
   }
+  else if(state===S.TAKEOFF){
+    if(readyT>0)readyT-=dt;                 // run-up at the holding point
+    else updateTakeoff(dt);
+  }
   else if(state===S.ROLLOUT) updateRollout(dt);
   else if(state===S.DYING) updateDying(dt);
   else if(state===S.MENU&&attractOn) updateAttract(dt);
@@ -2842,6 +2983,10 @@ function renderFrame(t){
     camera.rotation.set(-0.34+Math.sin(dying.t*7)*0.05,Math.sin(dying.roll*0.5)*0.25,-bank);
   }else if(state===S.ROLLOUT){
     camera.rotation.set(0.02,0,-bank*0.4);
+  }else if(state===S.TAKEOFF){
+    // tail-down on the roll, nose coming up through the rotation
+    camera.rotation.set(0.06-Math.min(0.10,P.speed*0.0011)+(TO.lifted?Math.min(0.16,TO.rotT*0.4):0),
+                        0,-bank*0.5);
   }else{
     camera.rotation.set(P.vy*0.0042,-P.vx*0.0016,-bank);
   }
@@ -2871,7 +3016,7 @@ function checkOrient(){
   const ro=document.getElementById("rotateOverlay");
   if(isPortrait()&&state!==S.MENU){
     ro.classList.remove("hidden");
-    if(state===S.PLAY||state===S.ROLLOUT){prePauseState=state;state=S.PAUSE;orientPaused=true;}
+    if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;orientPaused=true;}
   }else if(!isPortrait()){
     ro.classList.add("hidden");
     if(state===S.PAUSE&&orientPaused){
@@ -2904,16 +3049,16 @@ async function startFlow(){
     calibrate();resetWorld();hideAll();
     document.getElementById("uiBtns").style.display="flex";
     attractOn=false;
-    state=S.PLAY;readyT=2.0;checkOrient();
+    state=S.TAKEOFF;readyT=2.0;checkOrient();
   },350);
 }
 document.getElementById("startBtn").addEventListener("click",startFlow);
 document.getElementById("retryBtn").addEventListener("click",()=>{
-  calibrate();resetWorld();hideAll();state=S.PLAY;readyT=2.0;checkOrient();
+  calibrate();resetWorld();hideAll();state=S.TAKEOFF;readyT=2.0;checkOrient();
 });
 document.getElementById("contBtn").addEventListener("click",()=>{
   nextSector();
-  hideAll();state=S.PLAY;readyT=1.2;checkOrient();
+  hideAll();state=S.TAKEOFF;readyT=1.6;checkOrient();
 });
 let pilotLetters=["A","A","A"];
 function renderSlots(){
@@ -2936,7 +3081,7 @@ document.getElementById("saveScore").addEventListener("click",()=>{
   renderBoard();
 });
 document.getElementById("pauseBtn").addEventListener("click",()=>{
-  if(state===S.PLAY||state===S.ROLLOUT){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
+  if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
 });
 document.getElementById("resumeBtn").addEventListener("click",()=>{
   if(isPortrait()){checkOrient();return;}
@@ -2949,13 +3094,13 @@ document.getElementById("fxBtn").addEventListener("click",()=>{
   document.getElementById("fxBtn").style.opacity=postOn?"1":"0.4";
 });
 document.addEventListener("visibilitychange",()=>{
-  if(document.hidden&&(state===S.PLAY||state===S.ROLLOUT)){
+  if(document.hidden&&(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF)){
     prePauseState=state;state=S.PAUSE;show("pauseOverlay");
   }
 });
 window.addEventListener("keydown",e=>{
   if(e.key==="Escape"||e.key==="p"){
-    if(state===S.PLAY||state===S.ROLLOUT){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
+    if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
     else if(state===S.PAUSE){hideAll();state=prePauseState;}
   }
 });
@@ -2987,9 +3132,14 @@ attractOn=true;
 window.SKY={
   P,G,af,Rings,Haz,Terrain,
   state:()=>state,
-  play(){ initAudio&&null; resetWorld(); attractOn=false; hideAll();
-          document.getElementById("uiBtns").style.display="flex";
-          state=S.PLAY; readyT=0; },
+  // start on the strip, ready to roll
+  takeoff(){ resetWorld(); attractOn=false; hideAll();
+             document.getElementById("uiBtns").style.display="flex";
+             state=S.TAKEOFF; readyT=0; },
+  // start on the strip and fly her off, so tests begin airborne
+  play(){ this.takeoff();
+          for(let i=0;i<1200&&state===S.TAKEOFF;i++) updateTakeoff(0.033);
+          return state===S.PLAY; },
   approach(){ this.play(); G.levelEnd=P.dist+1400; },
   // headless: advance the simulation without waiting on frames
   step(n,dt){
@@ -2997,6 +3147,7 @@ window.SKY={
     for(let i=0;i<n;i++){
       if(state===S.PLAY&&readyT<=0) update(dt,performance.now());
       else if(state===S.ROLLOUT) updateRollout(dt);
+      else if(state===S.TAKEOFF&&readyT<=0) updateTakeoff(dt);
       else if(state===S.DYING) updateDying(dt);
       else break;
     }

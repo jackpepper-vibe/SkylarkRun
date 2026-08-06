@@ -44,6 +44,22 @@ const cpu = await page.evaluate(() => {
 check('frame cost under 4 ms', cpu.update + cpu.hud < 4,
   'update ' + cpu.update + ' ms, cockpit ' + cpu.hud + ' ms');
 
+// --- the take-off is a roll, and the clock only starts in the air ---
+const takeoff = await page.evaluate(() => {
+  const S = window.SKY;
+  S.takeoff();
+  const z0 = S.P.z;
+  let t = 0;
+  while (S.state() === 7 && t < 40) { S.step(1, 0.033); t += 0.033; }
+  return { s: +t.toFixed(1), roll: Math.round(z0 - S.P.z), fuel: +S.G.fuel.toFixed(1),
+           score: Math.floor(S.G.score), dist: Math.round(S.P.dist), state: S.state() };
+});
+check('take-off is a ground roll, not a jump', takeoff.state === 1 && takeoff.roll > 180 && takeoff.s > 5,
+  takeoff.roll + ' m over ' + takeoff.s + ' s');
+check('fuel, score and distance only start in the air',
+  takeoff.fuel === 100 && takeoff.score === 0 && takeoff.dist === 0,
+  'fuel ' + takeoff.fuel + ', score ' + takeoff.score + ', dist ' + takeoff.dist);
+
 // --- the ring course scores ---
 const course = await page.evaluate(() => {
   const S = window.SKY;
@@ -62,6 +78,7 @@ check('gates register and score', course.score > 2000 && course.rings.split('/')
 const fly = (mode) => page.evaluate((mode) => {
   const S = window.SKY;
   S.approach();
+  let touchZ = null, touchT = 0;
   for (let i = 0; i < 4000; i++) {
     const af = S.af;
     if (af.active && af.phase === 1) {
@@ -70,7 +87,7 @@ const fly = (mode) => page.evaluate((mode) => {
         S.P.x += (af.x - S.P.x) * 0.3;
         if (mode === 'heavy' && S.P.z - af.z < af.len * 0.5) { S.P.vy = -30; S.P.y -= 3; }
         else if (mode === 'good') {
-          const aim = af.z - af.len * 0.5 + 220;
+          const aim = af.z + af.len * 0.5 - 200;
           const want = af.y + Math.max(1, S.P.z - aim) * Math.tan(5 * Math.PI / 180);
           S.P.vy = (want - S.P.y) * 0.9 - 3;
           S.P.y += (want - S.P.y) * 0.3;
@@ -78,13 +95,23 @@ const fly = (mode) => page.evaluate((mode) => {
       }
     }
     const r = S.step(2);
-    if (r.state === 4 || r.state === 3) return r;
+    if (r.state === 6) {
+      if (touchZ === null) { touchZ = S.P.z; touchT = 0; }
+      touchT += 0.066;
+    }
+    if (r.state === 4 || r.state === 3) {
+      if (touchZ !== null) r.rollout = { m: Math.round(touchZ - S.P.z), s: +touchT.toFixed(1) };
+      return r;
+    }
   }
   return { state: -1 };
 }, mode);
 
 const good = await fly('good');
 check('a flown approach lands and clears', good.state === 4 && /GREASED|GOOD/.test(good.label), JSON.stringify(good));
+check('the landing rolls out rather than stopping dead',
+  good.rollout && good.rollout.m > 150 && good.rollout.s > 5,
+  good.rollout ? good.rollout.m + ' m over ' + good.rollout.s + ' s' : 'no rollout recorded');
 const high = await fly('high');
 check('staying high forces a go-around', high.state === 4 && /MISSED/.test(high.label), JSON.stringify(high));
 const heavy = await fly('heavy');

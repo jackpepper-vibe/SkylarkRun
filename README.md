@@ -22,6 +22,11 @@ tap **Enable tilt & fly**, and can be re-taken from the pause screen.
 
 ## The run
 
+- **Take off first.** Every sector starts at the holding point with the engine
+  running. Full power, hold the centreline, and ease back at Vr (180 km/h) — she
+  unsticks after about 400 m of roll and climbs away. Leave it too late and she
+  flies herself off at the end of the strip; wander off the side and you bend her.
+  **Fuel, score and sector distance only start once you are airborne.**
 - **Gates** score 120 x your chain multiplier, up to x8. Dead-centre is a bullseye.
   Fly past one and the chain breaks.
 - **Fuel balloons** put 38 back in the tank. Fuel is the clock — it never stops.
@@ -38,8 +43,9 @@ tap **Enable tilt & fly**, and can be re-taken from the pause screen.
   | Firm landing | sink < 19 m/s | +400 |
   | Heavy | anything worse | bounce, airframe damage, go around |
 
-  Then hold the centreline through the rollout. Run off the side or off the end
-  and the bonus is gone.
+  Then hold the centreline through the rollout — about 210 m and nine seconds of
+  it, drag first and brakes as she slows. Run off the side or off the end and the
+  bonus is gone.
 
 Each sector changes the land (meadows, highlands, lakeland, downland), the light
 (morning through golden hour) and, from sector 3, the weather (gusts, showers,
@@ -71,12 +77,12 @@ node C:/Claude/Tools/shot/shot.mjs ./index.html --viewport 1280x720 --wait 4000 
   --eval "window.SKY.play()" --out shots/play.png
 ```
 
-`window.SKY` is the test hook: `play()`, `approach()`, `step(n, dt)` to advance
+`window.SKY` is the test hook: `takeoff()`, `play()` (takes off for you), `approach()`, `step(n, dt)` to advance
 the simulation without waiting on frames, `hold(true)` to freeze the clock while
 still rendering, and `fx(false)` to drop the post chain.
 
-The smoke test drives all of that — the ring course, a flown approach, a
-go-around and a heavy arrival — and fails on any console error:
+The smoke test drives all of that — the take-off roll, the ring course, a flown
+approach, a go-around and a heavy arrival — and fails on any console error:
 
 ```
 node tools/headless-test.mjs
