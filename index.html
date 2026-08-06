@@ -711,7 +711,7 @@ const Shadows={
     const gh=onField(P.x,P.z)?af.y:groundH(P.x,P.z);
     const agl=P.y-gh;
     if(!flying||agl>220||agl<-2){ m.visible=false; return; }
-    const gx=P.x+clamp(this.sunX*agl,-agl*1.1,agl*1.1);
+    const gx=P.x+clamp(this.sunX*agl*0.5,-agl*0.5,agl*0.5);   // keep it under the wing
     const gz=P.z-this.FORWARD*agl;
     const gy=onField(gx,gz)?af.y:groundH(gx,gz);
     m.position.set(gx,gy+0.5,gz);
