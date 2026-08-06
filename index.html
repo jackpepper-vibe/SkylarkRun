@@ -2605,10 +2605,10 @@ function drawHUD(t){
     hctx.closePath();hctx.fill();
     hctx.restore();
     hctx.strokeStyle="#8a6a3a";hctx.lineWidth=1;hctx.strokeRect(mx,my,mw,mh);
-    hctx.fillStyle="#c8b48a";
+    hctx.fillStyle="rgba(90,70,40,0.65)";                 // pencilled title, on the paper
     hctx.font="600 "+Math.max(7,ph*0.10)+"px ui-monospace,Menlo,Consolas,monospace";
-    hctx.textAlign="left";hctx.textBaseline="middle";
-    hctx.fillText("CHART",mx+2,my+mh+6);
+    hctx.textAlign="left";hctx.textBaseline="alphabetic";
+    hctx.fillText("CHART",mx+4,my+mh-4);
   }
 
   // ---- readouts, right of the panel ----
