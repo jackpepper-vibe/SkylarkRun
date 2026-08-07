@@ -5,9 +5,9 @@
  *   POST /api/scores            submit a run: { name, score, lvl, rings, chain }
  *
  * Backed by Neon Postgres on the free Marketplace plan — the same store the
- * other games use, in its own table. One row per pilot, keyed on their initials
- * and only overwritten by a better run, so the board shows ten distinct pilots
- * rather than one good session ten times.
+ * other games use, in its own table. One row per pilot, keyed on a case-folded
+ * pilot name and only overwritten by a better run, so the board shows ten
+ * distinct pilots rather than one good session ten times.
  *
  * If the store is not provisioned the endpoint reports that plainly and the
  * game falls back to its local logbook — it never blocks play.
@@ -39,6 +39,9 @@ function db() {
         chain      integer NOT NULL DEFAULT 0,
         updated_at timestamptz NOT NULL DEFAULT now()
       )`;
+    // name holds a case-folded key so one pilot cannot hold several rows;
+    // display holds what they actually typed
+    await sql`ALTER TABLE skylark_scores ADD COLUMN IF NOT EXISTS display text`;
     await sql`CREATE INDEX IF NOT EXISTS skylark_scores_score ON skylark_scores (score DESC)`;
     await sql`
       CREATE TABLE IF NOT EXISTS skylark_rate (
@@ -56,12 +59,24 @@ const clean = (v, lo, hi) => {
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
 };
 
+export const NAME_MAX = 16;
+
+// Pilots type a real name, so accept letters (including accented ones), digits,
+// spaces and light punctuation, and nothing that could be read as markup.
+export function cleanName(raw) {
+  return String(raw == null ? "" : raw)
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N} '._-]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, NAME_MAX);
+}
+
 // The client is a web page, so a determined person can post whatever they like.
 // These bounds only keep casual nonsense off the board; they are not security.
 export function validate(body) {
-  const name = String((body && body.name) || "")
-    .toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
-  if (name.length !== 3) return { error: "name must be three letters" };
+  const name = cleanName(body && body.name);
+  if (!name) return { error: "a pilot name is required" };
   const score = Math.floor(Number(body.score));
   if (!Number.isFinite(score) || score <= 0) return { error: "score must be a positive number" };
   if (score > 2000000) return { error: "score is not plausible" };
@@ -70,11 +85,11 @@ export function validate(body) {
   const chain = clean(body.chain, 0, 8);
   // a sector is worth a few thousand at best; well over that means a bad actor
   if (score > 90000 * lvl) return { error: "score does not match the sector reached" };
-  return { entry: { name, score, lvl, rings, chain } };
+  return { entry: { name, key: name.toLocaleLowerCase(), score, lvl, rings, chain } };
 }
 
 const board = (sql) => sql`
-  SELECT name, score, lvl, rings, chain
+  SELECT COALESCE(display, name) AS name, score, lvl, rings, chain
   FROM skylark_scores
   ORDER BY score DESC, updated_at ASC
   LIMIT ${TOP}`;
@@ -114,14 +129,15 @@ export default async function handler(req, res) {
       }
       // one row per pilot, replaced only by a better run
       const improved = await sql`
-        INSERT INTO skylark_scores (name, score, lvl, rings, chain)
-        VALUES (${entry.name}, ${entry.score}, ${entry.lvl}, ${entry.rings}, ${entry.chain})
+        INSERT INTO skylark_scores (name, display, score, lvl, rings, chain)
+        VALUES (${entry.key}, ${entry.name}, ${entry.score}, ${entry.lvl},
+                ${entry.rings}, ${entry.chain})
         ON CONFLICT (name) DO UPDATE SET
-          score = EXCLUDED.score, lvl = EXCLUDED.lvl, rings = EXCLUDED.rings,
-          chain = EXCLUDED.chain, updated_at = now()
+          display = EXCLUDED.display, score = EXCLUDED.score, lvl = EXCLUDED.lvl,
+          rings = EXCLUDED.rings, chain = EXCLUDED.chain, updated_at = now()
         WHERE skylark_scores.score < EXCLUDED.score
         RETURNING name`;
-      const best = await sql`SELECT score FROM skylark_scores WHERE name = ${entry.name}`;
+      const best = await sql`SELECT score FROM skylark_scores WHERE name = ${entry.key}`;
       const at = best[0] ? best[0].score : entry.score;
       const ahead = await sql`SELECT count(*)::int AS n FROM skylark_scores WHERE score > ${at}`;
       return res.status(200).json({

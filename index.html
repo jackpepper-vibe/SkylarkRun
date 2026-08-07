@@ -39,13 +39,19 @@
     font:500 clamp(12px,2.4vh,15px)/1.7 ui-monospace,Menlo,Consolas,monospace;
     letter-spacing:.03em;box-shadow:0 6px 18px rgba(20,30,45,0.22);}
   .placard b{color:#a8541f;}
-  .slotCol{display:flex;flex-direction:column;align-items:center;gap:2px;}
-  .slotL{font:800 26px ui-monospace,Menlo,Consolas,monospace;color:#3a2c1c;
-    width:40px;text-align:center;background:#fbf4e2;border:2px solid #8a5a22;
-    border-radius:8px;padding:7px 0;}
-  .slotBtn{background:none;border:none;color:#fbf4e2;font-size:17px;
-    padding:3px 12px;cursor:pointer;text-shadow:0 1px 2px rgba(0,0,0,.35);}
-  .slotBtn:active{color:#ffd98a;}
+  #entryRow{margin-top:12px;display:flex;gap:10px;align-items:center;
+    justify-content:center;flex-wrap:wrap;}
+  #pilotName{font:700 clamp(15px,2.6vh,19px) ui-monospace,Menlo,Consolas,monospace;
+    color:#3a2c1c;background:#fbf4e2;border:2px solid #8a5a22;border-radius:10px;
+    padding:12px 16px;width:min(62vw,260px);text-align:center;letter-spacing:.06em;
+    box-shadow:inset 0 2px 4px rgba(90,60,20,.18);}
+  #pilotName::placeholder{color:#a89474;letter-spacing:.04em;}
+  #pilotName:focus{outline:none;border-color:#d9a441;
+    box-shadow:inset 0 2px 4px rgba(90,60,20,.18), 0 0 0 3px rgba(217,164,65,.35);}
+  #pilotName.nudge{animation:nudge .3s;}
+  @keyframes nudge{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  #entryRow .btn{font-size:14px;padding:13px 22px;}
+  #boardList li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(86vw,420px);}
   .sub{font-size:clamp(11px,2.3vh,15px);letter-spacing:.32em;text-transform:uppercase;
     color:#fbf4e2;opacity:.9;margin:6px 0 22px;text-shadow:0 2px 4px rgba(20,30,45,.35);}
   .btn{font-size:clamp(16px,3.2vh,21px);font-weight:800;letter-spacing:.10em;
@@ -124,12 +130,12 @@
   <div class="stat">Score: <b id="finalScore">0</b></div>
   <div class="stat">Rings: <b id="finalRings">0</b> &middot; <b id="finalDist">0.0 km</b> &middot; Sector <b id="finalLvl">1</b></div>
   <div class="stat">Best chain: <b id="finalChain">x0</b></div>
-  <div id="entryRow" style="margin-top:12px;display:flex;gap:10px;align-items:center;">
-    <div class="slotCol"><button class="slotBtn" data-s="0" data-d="1">&#9650;</button><div class="slotL" id="sl0">A</div><button class="slotBtn" data-s="0" data-d="-1">&#9660;</button></div>
-    <div class="slotCol"><button class="slotBtn" data-s="1" data-d="1">&#9650;</button><div class="slotL" id="sl1">A</div><button class="slotBtn" data-s="1" data-d="-1">&#9660;</button></div>
-    <div class="slotCol"><button class="slotBtn" data-s="2" data-d="1">&#9650;</button><div class="slotL" id="sl2">A</div><button class="slotBtn" data-s="2" data-d="-1">&#9660;</button></div>
-    <button id="saveScore" class="btn" style="font-size:14px;padding:12px 20px;margin-left:6px;">Save</button>
-  </div>
+  <form id="entryRow" autocomplete="off">
+    <input id="pilotName" type="text" maxlength="16" placeholder="Pilot name"
+           aria-label="Pilot name" autocapitalize="words" autocorrect="off" spellcheck="false"
+           enterkeyhint="done">
+    <button id="saveScore" type="submit" class="btn">Save</button>
+  </form>
   <ol id="boardList"></ol>
   <div class="tiny" id="boardStatus" style="margin-top:6px"></div>
   <button id="retryBtn" class="btn" style="margin-top:18px">Fly again</button>
@@ -275,6 +281,22 @@ const Net={
     finally{ this.sending=false; }
   }
 };
+// Names go into the board through innerHTML. World-board names are sanitised
+// server-side, but a name typed here reaches the local logbook first, so escape
+// on render and clean on entry — the same rules the endpoint applies.
+function esc(t){
+  return String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
+    '"':"&quot;","'":"&#39;"}[c]));
+}
+const NAME_MAX=16;
+function cleanName(raw){
+  return String(raw==null?"":raw)
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N} '._-]/gu,"")
+    .replace(/\s+/g," ")
+    .trim()
+    .slice(0,NAME_MAX);
+}
 function ordinal(n){
   const s=["th","st","nd","rd"], v=n%100;
   return n+(s[(v-20)%10]||s[v]||s[0]);
@@ -2137,7 +2159,8 @@ function endGame(title,sub){
   document.getElementById("finalLvl").textContent=G.lvl;
   document.getElementById("finalChain").textContent="x"+G.bestCombo;
   document.getElementById("entryRow").style.display=G.score>0?"flex":"none";
-  renderSlots();
+  const pn=document.getElementById("pilotName");
+  pn.value=Save.data.pilot||"";
   Net.note="";
   renderBoard();
   Net.load();                       // freshen the world board while the card is up
@@ -2150,7 +2173,7 @@ function renderBoard(highlight){
   ol.innerHTML=rows.length
     ? rows.map((e,i)=>{
         const me=highlight&&e.name===highlight;
-        return "<li"+(me?' style="color:#c9ffd0"':"")+">"+e.name+" &mdash; "+
+        return "<li"+(me?' style="color:#c9ffd0"':"")+">"+esc(e.name)+" &mdash; "+
           e.score.toLocaleString()+" &middot; S"+(e.lvl||1)+"</li>";
       }).join("")
     : '<li style="opacity:.6;list-style:none">'+
@@ -2168,7 +2191,7 @@ function renderBoard(highlight){
     if(d.bestScore) parts.push("Best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+
       d.bestSector+"</b> &middot; chain <b>x"+d.bestChain+"</b>");
     if(Net.online&&Net.board.length)
-      parts.push("World leader <b>"+Net.board[0].name+"</b> &middot; <b>"+
+      parts.push("World leader <b>"+esc(Net.board[0].name)+"</b> &middot; <b>"+
         Net.board[0].score.toLocaleString()+"</b>");
     bl.innerHTML=parts.join("<br>");
     bl.style.display=parts.length?"block":"none";
@@ -3346,22 +3369,18 @@ document.getElementById("contBtn").addEventListener("click",()=>{
   nextSector();
   hideAll();state=S.TAKEOFF;readyT=1.6;checkOrient();
 });
-let pilotLetters=(Save.data.pilot||"AAA").split("");
-function renderSlots(){
-  pilotLetters.forEach((L,i)=>document.getElementById("sl"+i).textContent=L);
-}
-document.getElementById("entryRow").addEventListener("click",e=>{
-  const b=e.target.closest(".slotBtn");
-  if(!b)return;
-  const s=+b.dataset.s, d=+b.dataset.d;
-  const code=pilotLetters[s].charCodeAt(0)+d;
-  pilotLetters[s]=String.fromCharCode(code>90?65:(code<65?90:code));
-  renderSlots();
-});
-document.getElementById("saveScore").addEventListener("click",async ()=>{
-  const name=pilotLetters.join("");
+document.getElementById("entryRow").addEventListener("submit",async (e)=>{
+  e.preventDefault();
+  const pn=document.getElementById("pilotName");
+  const name=cleanName(pn.value);
+  if(!name){                                  // ask again rather than post a blank
+    pn.classList.remove("nudge"); void pn.offsetWidth; pn.classList.add("nudge");
+    pn.focus();
+    return;
+  }
+  pn.blur();                                  // let the on-screen keyboard go
   const entry={name,score:G.score,lvl:G.lvl,rings:G.ringsHit,chain:G.bestCombo};
-  Save.submit(entry);                        // the local logbook always takes it
+  Save.submit(entry);                         // the local logbook always takes it
   document.getElementById("entryRow").style.display="none";
   chime(980);
   if(!Net.online){ renderBoard(name); return; }
@@ -3374,7 +3393,8 @@ document.getElementById("saveScore").addEventListener("click",async ()=>{
         (d.improved?"":" (your best still stands)")
       : "";
   }else{
-    Net.note="world board unreachable &middot; saved to your logbook";
+    Net.note=(d&&d.error?d.error:"world board unreachable")+
+      " &middot; saved to your logbook";
   }
   renderBoard(name);
   setTimeout(()=>{ Net.note=""; },6000);

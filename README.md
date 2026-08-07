@@ -79,11 +79,14 @@ private browsing or a full quota just means it stays in memory for the session.
 | `GET /api/scores` | the top ten pilots, best run each |
 | `POST /api/scores` | submit `{ name, score, lvl, rings, chain }` |
 
-One row per pilot, keyed on their three initials and only overwritten by a
+One row per pilot, keyed on a case-folded pilot name and only overwritten by a
 better run (`ON CONFLICT ... WHERE score < EXCLUDED.score`), so the board shows
-ten distinct pilots rather than one good session ten times. Submissions are
-validated (initials, plausible score for the sector reached, clamped rings and
-chain) and throttled per address.
+ten distinct pilots rather than one good session ten times, and `Kevin` cannot
+hold a second row as `KEVIN`. Names allow letters, digits, spaces and light
+punctuation up to 16 characters; scores are checked for plausibility against the
+sector reached, rings and chain are clamped, and submissions are throttled per
+address. Names are escaped on render — a name typed into the field reaches the
+local logbook before any server sees it.
 
 **On cheating:** the client is a web page, so anyone can post whatever they like
 to that endpoint. The bounds keep casual nonsense off the board and nothing more
