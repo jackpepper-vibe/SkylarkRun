@@ -122,6 +122,7 @@
     <button id="saveScore" class="btn" style="font-size:14px;padding:12px 20px;margin-left:6px;">Save</button>
   </div>
   <ol id="boardList"></ol>
+  <div class="tiny" id="boardStatus" style="margin-top:6px"></div>
   <button id="retryBtn" class="btn" style="margin-top:18px">Fly again</button>
 </div>
 
@@ -228,6 +229,47 @@ const Save={
   }
 };
 const board=Save.load().board;
+
+// ---------- the global logbook ----------
+// Backed by /api/scores. Everything here is best-effort: if the endpoint is
+// missing, unprovisioned or unreachable, the game shows the local logbook and
+// carries on. Nothing in the flight loop ever waits on the network.
+const Net={
+  online:false, checked:false, board:[], sending:false, note:"",
+  // opened straight off disk there is no API to talk to
+  usable(){ return typeof location!=="undefined"&&location.protocol!=="file:"; },
+  async load(){
+    if(!this.usable()){ this.checked=true; this.online=false; renderBoard(); return false; }
+    try{
+      const res=await fetch("api/scores",{cache:"no-store"});
+      const d=await res.json();
+      this.online=!!(d&&d.ok&&d.configured);
+      this.board=(d&&d.board)||[];
+    }catch(e){
+      this.online=false; this.board=[];
+    }
+    this.checked=true;
+    renderBoard();
+    return this.online;
+  },
+  async submit(entry){
+    if(!this.online||this.sending) return null;
+    this.sending=true;
+    try{
+      const res=await fetch("api/scores",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(entry)});
+      const d=await res.json();
+      if(d&&Array.isArray(d.board)) this.board=d.board;
+      return d;
+    }catch(e){ return null; }
+    finally{ this.sending=false; }
+  }
+};
+function ordinal(n){
+  const s=["th","st","nd","rd"], v=n%100;
+  return n+(s[(v-20)%10]||s[v]||s[0]);
+}
 function popup(txt){ popups.push({txt,t0:performance.now()}); if(popups.length>5)popups.shift(); }
 const P={x:0,y:120,z:0,pz:0,vx:0,vy:0,speed:SPEED0,lives:3,invuln:0,dist:0,roll:0};
 
@@ -2085,25 +2127,42 @@ function endGame(title,sub){
   document.getElementById("finalDist").textContent=(P.dist/1000).toFixed(2)+" km";
   document.getElementById("finalLvl").textContent=G.lvl;
   document.getElementById("finalChain").textContent="x"+G.bestCombo;
-  document.getElementById("entryRow").style.display=Save.qualifies(G.score)?"flex":"none";
+  document.getElementById("entryRow").style.display=G.score>0?"flex":"none";
   renderSlots();
+  Net.note="";
   renderBoard();
+  Net.load();                       // freshen the world board while the card is up
   show("overOverlay");
 }
 function renderBoard(highlight){
   const ol=document.getElementById("boardList");
-  ol.innerHTML=board.length
-    ? board.map((e,i)=>"<li"+(i===highlight?' style="color:#c9ffd0"':"")+">"+e.name+" &mdash; "+
-        e.score.toLocaleString()+" &middot; S"+e.lvl+"</li>").join("")
-    : '<li style="opacity:.6;list-style:none">no logbook entries yet</li>';
+  const global=Net.online&&Net.board.length>0;
+  const rows=global?Net.board:board;
+  ol.innerHTML=rows.length
+    ? rows.map((e,i)=>{
+        const me=highlight&&e.name===highlight;
+        return "<li"+(me?' style="color:#c9ffd0"':"")+">"+e.name+" &mdash; "+
+          e.score.toLocaleString()+" &middot; S"+(e.lvl||1)+"</li>";
+      }).join("")
+    : '<li style="opacity:.6;list-style:none">'+
+      (Net.online?"no pilots on the board yet":"no logbook entries yet")+"</li>";
+  const st=document.getElementById("boardStatus");
+  if(st){
+    st.innerHTML=Net.note ? Net.note
+      : (global?"world logbook"
+              :(Net.checked?"your logbook &middot; world board unavailable":"your logbook"));
+  }
   const bl=document.getElementById("bestLine");
   if(bl){
     const d=Save.data;
-    bl.innerHTML=d.bestScore
-      ? "Best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+d.bestSector+
-        "</b> &middot; chain <b>x"+d.bestChain+"</b>"
-      : "";
-    bl.style.display=d.bestScore?"block":"none";
+    const parts=[];
+    if(d.bestScore) parts.push("Best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+
+      d.bestSector+"</b> &middot; chain <b>x"+d.bestChain+"</b>");
+    if(Net.online&&Net.board.length)
+      parts.push("World leader <b>"+Net.board[0].name+"</b> &middot; <b>"+
+        Net.board[0].score.toLocaleString()+"</b>");
+    bl.innerHTML=parts.join("<br>");
+    bl.style.display=parts.length?"block":"none";
   }
 }
 function levelClear(){
@@ -3282,12 +3341,26 @@ document.getElementById("entryRow").addEventListener("click",e=>{
   pilotLetters[s]=String.fromCharCode(code>90?65:(code<65?90:code));
   renderSlots();
 });
-document.getElementById("saveScore").addEventListener("click",()=>{
+document.getElementById("saveScore").addEventListener("click",async ()=>{
   const name=pilotLetters.join("");
-  const at=Save.submit({name,score:G.score,lvl:G.lvl,rings:G.ringsHit,chain:G.bestCombo});
+  const entry={name,score:G.score,lvl:G.lvl,rings:G.ringsHit,chain:G.bestCombo};
+  Save.submit(entry);                        // the local logbook always takes it
   document.getElementById("entryRow").style.display="none";
-  renderBoard(at);
   chime(980);
+  if(!Net.online){ renderBoard(name); return; }
+  Net.note="sending to the world board…";
+  renderBoard(name);
+  const d=await Net.submit(entry);
+  if(d&&d.ok){
+    Net.note=d.rank
+      ? "world logbook &middot; you are <b>"+ordinal(d.rank)+"</b>"+
+        (d.improved?"":" (your best still stands)")
+      : "";
+  }else{
+    Net.note="world board unreachable &middot; saved to your logbook";
+  }
+  renderBoard(name);
+  setTimeout(()=>{ Net.note=""; },6000);
 });
 document.getElementById("pauseBtn").addEventListener("click",()=>{
   if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
@@ -3337,6 +3410,7 @@ resetWorld();
 popups.length=0;
 attractOn=true;
 renderBoard();            // show the logbook bests on the title card
+Net.load();               // and the world leader, if the board is reachable
 
 // ---------- test hook: drives the game from a headless browser ----------
 window.SKY={

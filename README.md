@@ -56,9 +56,42 @@ Each sector changes the land (meadows, highlands, lakeland, downland), the light
 (morning through golden hour) and, from sector 3, the weather (gusts, showers,
 thermals).
 
-Your logbook — top five scores, best score, furthest sector and longest chain —
-is kept in `localStorage` and shown on the title card. Every access is guarded,
-so private browsing or a full quota just means the logbook stays in memory.
+## Logbooks
+
+Two of them, and the game never waits on either.
+
+**Yours** — top five scores, best score, furthest sector and longest chain — is
+kept in `localStorage` and shown on the title card. Every access is guarded, so
+private browsing or a full quota just means it stays in memory for the session.
+
+**The world board** lives in Upstash Redis behind `/api/scores`:
+
+| | |
+| --- | --- |
+| `GET /api/scores` | the top ten pilots, best run each |
+| `POST /api/scores` | submit `{ name, score, lvl, rings, chain }` |
+
+The sorted set keys on the pilot's three initials with `ZADD GT`, so the board
+shows ten distinct pilots rather than one good session ten times, and the run
+detail sits in a parallel hash. Submissions are validated (initials, plausible
+score for the sector reached, clamped rings and chain) and throttled per address.
+
+**On cheating:** the client is a web page, so anyone can post whatever they like
+to that endpoint. The bounds keep casual nonsense off the board and nothing more
+— treat the world board as a friendly scoreboard, not an authority.
+
+If the store is unprovisioned or unreachable the endpoint says so plainly, the
+game shows your local logbook instead, and play is unaffected.
+
+### Provisioning the store
+
+```
+vercel integration add upstash/upstash-kv     # then approve in the browser
+vercel deploy --prod                          # pick up the injected env vars
+```
+
+The handler accepts either `KV_REST_API_URL`/`_TOKEN` (Marketplace) or
+`UPSTASH_REDIS_REST_URL`/`_TOKEN` (a direct Upstash account).
 
 ## How it is put together
 
@@ -99,5 +132,6 @@ The smoke test drives all of that — the take-off roll, the ring course, a flow
 approach, a go-around and a heavy arrival — and fails on any console error:
 
 ```
-node tools/headless-test.mjs
+node tools/headless-test.mjs     # the game: flight, gates, approach, logbook
+node tools/api-test.mjs          # the leaderboard endpoint, without a live store
 ```

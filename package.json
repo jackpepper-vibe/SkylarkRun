@@ -1,0 +1,13 @@
+{
+  "name": "skylark-run",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Open-cockpit air racing over sunlit countryside.",
+  "scripts": {
+    "test": "node tools/headless-test.mjs"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.38.2"
+  }
+}
