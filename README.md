@@ -40,9 +40,12 @@ tab it says so and leaves you on a shutdown card rather than pretending.
 - **Gold gates** pay treble, and are never on the easy line — down in the hollows,
   out on a limb, low enough over the trees to make you think about it. Roughly two
   or three a sector. The chart and the gate marker both flag them in gold.
-- **Fuel balloons** put 38 back in the tank. Fuel is the clock — it never stops.
-- **Hazards** from sector 2: pylon cables, guyed masts, wind turbines, balloons and
-  bird flocks. Terrain and treetops are always live.
+- **Fuel drops** put 38 back in the tank — a green and cream parachute canopy
+  with a white-cross jerrycan slung under it. Deliberately nothing like the
+  hot-air balloons you have to dodge, which are never green. Fuel is the clock —
+  it never stops.
+- **Hazards** from sector 2: pylon cables, guyed masts, wind turbines, crewed
+  hot-air balloons and bird flocks. Terrain and treetops are always live.
 - **Hedge hopping** under 45 m AGL pays a trickle bonus. So does staying alive.
 - **The runway** ends every sector. It is put down while still over the horizon,
   so it fades up out of the haze as you close on it; the approach call comes at
