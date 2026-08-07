@@ -22,6 +22,12 @@ screen as a PWA.
 Landscape orientation is required on phones; the tilt datum is captured when you
 tap **Enable tilt & fly**, and can be re-taken from the pause screen.
 
+**Exit game** on the pause screen shuts the flight down properly — engine off,
+out of fullscreen, orientation released, rendering stopped, logbook flushed —
+then asks the browser to close the page. A page may only close itself when it
+was opened by script or is running as an installed app, so on a normal browser
+tab it says so and leaves you on a shutdown card rather than pretending.
+
 ## The run
 
 - **Take off first.** Every sector starts at the holding point with the engine

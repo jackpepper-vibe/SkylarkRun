@@ -107,6 +107,15 @@
   <h1 style="font-size:34px">Paused</h1>
   <button id="resumeBtn" class="btn" style="margin-top:18px">Resume</button>
   <button id="recalBtn" class="btn ghost">Recalibrate tilt (hold level first)</button>
+  <button id="exitBtn" class="btn ghost">Exit game</button>
+</div>
+
+<div id="quitOverlay" class="overlay hidden">
+  <h1 style="font-size:34px">Engine <span>off</span></h1>
+  <div class="sub">chocks in &middot; thanks for flying</div>
+  <div class="stat" id="quitBest"></div>
+  <button id="backBtn" class="btn" style="margin-top:18px">Back to the field</button>
+  <div class="tiny" id="quitNote" style="max-width:460px"></div>
 </div>
 
 <div id="overOverlay" class="overlay hidden">
@@ -3221,7 +3230,15 @@ function drawHUD(t){
 
 // ---------- frame ----------
 let simHold=false;          // test hook: keep rendering, stop the clock
+let looping=true;           // cleared on exit so the aircraft stops burning battery
+function stopLoop(){ looping=false; }
+function startLoop(){
+  if(looping) return;
+  looping=true; tPrev=performance.now();
+  requestAnimationFrame(frame);
+}
 function frame(t){
+  if(!looping) return;
   requestAnimationFrame(frame);
   const dt=simHold?0:(Math.min(0.05,(t-tPrev)/1000)||0.016);tPrev=t;
   if(simHold){
@@ -3276,7 +3293,7 @@ function renderFrame(t){
 requestAnimationFrame(frame);
 
 // ---------- overlays / flow ----------
-const overlays=["startOverlay","pauseOverlay","overOverlay","rotateOverlay","clearOverlay"];
+const overlays=["startOverlay","pauseOverlay","overOverlay","rotateOverlay","clearOverlay","quitOverlay"];
 function show(id){overlays.forEach(o=>document.getElementById(o).classList.toggle("hidden",o!==id));}
 function hideAll(){overlays.forEach(o=>document.getElementById(o).classList.add("hidden"));}
 function isPortrait(){return window.innerHeight>window.innerWidth;}
@@ -3370,6 +3387,48 @@ document.getElementById("resumeBtn").addEventListener("click",()=>{
   hideAll();state=prePauseState;
 });
 document.getElementById("recalBtn").addEventListener("click",()=>calibrate());
+
+// ---------- shutting down ----------
+// A page may only close itself when the browser opened it by script or it is
+// running as an installed app. Rather than pretend, this shuts the flight down
+// properly — engine off, out of fullscreen, orientation released, rendering
+// stopped, logbook flushed — then asks to close and says so if it is refused.
+async function exitGame(){
+  Save.flush();
+  stopLoop();
+  state=S.MENU; attractOn=false; readyT=0;
+  setMuted(true);
+  try{ if(AC&&AC.state==="running") await AC.suspend(); }catch(e){}
+  try{ if(document.fullscreenElement&&document.exitFullscreen) await document.exitFullscreen(); }catch(e){}
+  try{ if(screen.orientation&&screen.orientation.unlock) screen.orientation.unlock(); }catch(e){}
+  document.getElementById("uiBtns").style.display="none";
+  const d=Save.data;
+  document.getElementById("quitBest").innerHTML=
+    d.bestScore?"Best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+d.bestSector+"</b>":"";
+  document.getElementById("quitNote").textContent="";
+  show("quitOverlay");
+  try{ window.close(); }catch(e){}
+  setTimeout(()=>{
+    if(!window.closed){
+      document.getElementById("quitNote").textContent=
+        "Your browser will not let a page close itself. The flight is shut down — "+
+        "close the tab, or swipe the app away. Installed to your home screen, this button closes it.";
+    }
+  },350);
+}
+document.getElementById("exitBtn").addEventListener("click",exitGame);
+document.getElementById("backBtn").addEventListener("click",()=>{
+  setMuted(false);
+  try{ if(AC&&AC.state==="suspended") AC.resume(); }catch(e){}
+  startLoop();
+  resetWorld();
+  popups.length=0;
+  attractOn=true;
+  state=S.MENU;
+  show("startOverlay");
+  renderBoard();
+  Net.load();
+});
 document.getElementById("muteBtn").addEventListener("click",()=>setMuted(!muted));
 document.getElementById("fxBtn").addEventListener("click",()=>{
   postOn=!postOn;
