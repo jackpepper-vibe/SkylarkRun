@@ -45,7 +45,8 @@ tab it says so and leaves you on a shutdown card rather than pretending.
   hot-air balloons you have to dodge, which are never green. Fuel is the clock —
   it never stops.
 - **Hazards** from sector 2: pylon cables, guyed masts, wind turbines, crewed
-  hot-air balloons and bird flocks. Terrain and treetops are always live.
+  hot-air balloons and bird flocks. Terrain and treetops are always live. The
+  balloons are solid all the way down — envelope and basket both.
 - **Hedge hopping** under 45 m AGL pays a trickle bonus. So does staying alive.
 - **The runway** ends every sector. It is put down while still over the horizon,
   so it fades up out of the haze as you close on it; the approach call comes at
