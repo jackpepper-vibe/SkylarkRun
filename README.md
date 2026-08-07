@@ -3,8 +3,10 @@
 Open-cockpit air racing over sunlit countryside. Thread the gates, keep the chain
 alive, then put the aeroplane down on the runway at the end of the sector.
 
-A single self-contained `index.html` — Three.js from a CDN, no build step, no
-backend, no APIs. Runs on desktop and installs to a phone home screen as a PWA.
+The game is a single self-contained `index.html` — Three.js from a CDN, no build
+step. The only server-side piece is one function for the world leaderboard, and
+the game plays perfectly without it. Runs on desktop and installs to a phone home
+screen as a PWA.
 
 ![Lined up on a gate](screenshot.png)
 
