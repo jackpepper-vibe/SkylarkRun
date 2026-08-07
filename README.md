@@ -72,17 +72,18 @@ Two of them, and the game never waits on either.
 kept in `localStorage` and shown on the title card. Every access is guarded, so
 private browsing or a full quota just means it stays in memory for the session.
 
-**The world board** lives in Upstash Redis behind `/api/scores`:
+**The world board** lives in Neon Postgres behind `/api/scores`:
 
 | | |
 | --- | --- |
 | `GET /api/scores` | the top ten pilots, best run each |
 | `POST /api/scores` | submit `{ name, score, lvl, rings, chain }` |
 
-The sorted set keys on the pilot's three initials with `ZADD GT`, so the board
-shows ten distinct pilots rather than one good session ten times, and the run
-detail sits in a parallel hash. Submissions are validated (initials, plausible
-score for the sector reached, clamped rings and chain) and throttled per address.
+One row per pilot, keyed on their three initials and only overwritten by a
+better run (`ON CONFLICT ... WHERE score < EXCLUDED.score`), so the board shows
+ten distinct pilots rather than one good session ten times. Submissions are
+validated (initials, plausible score for the sector reached, clamped rings and
+chain) and throttled per address.
 
 **On cheating:** the client is a web page, so anyone can post whatever they like
 to that endpoint. The bounds keep casual nonsense off the board and nothing more
@@ -91,15 +92,24 @@ to that endpoint. The bounds keep casual nonsense off the board and nothing more
 If the store is unprovisioned or unreachable the endpoint says so plainly, the
 game shows your local logbook instead, and play is unaffected.
 
-### Provisioning the store
+### The store
+
+This project does not own a database. It shares the existing free-plan Neon
+store on the Vercel account — `neon-beige-queen`, the one dynamite-dan uses —
+in its own tables (`skylark_scores`, `skylark_rate`). Nothing new is billed.
+
+A Marketplace resource can be attached to more than one project:
 
 ```
-vercel integration add upstash/upstash-kv     # then approve in the browser
-vercel deploy --prod                          # pick up the injected env vars
+vercel integration resource connect neon-beige-queen skylark-run
+vercel deploy --prod          # injected env vars only reach a new deployment
 ```
 
-The handler accepts either `KV_REST_API_URL`/`_TOKEN` (Marketplace) or
-`UPSTASH_REDIS_REST_URL`/`_TOKEN` (a direct Upstash account).
+The handler reads `DATABASE_URL`, falling back to `POSTGRES_URL`. Tables are
+created on first cold start, so there is no migration step.
+
+Because the store is shared, deleting it from another project's dashboard would
+take this board with it.
 
 ## How it is put together
 
