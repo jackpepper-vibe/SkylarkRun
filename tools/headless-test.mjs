@@ -14,8 +14,38 @@
 const PLAYWRIGHT = 'file:///C:/Claude/Tools/shot/node_modules/playwright/index.mjs';
 const { chromium } = await import(PLAYWRIGHT);
 import path from 'path';
+import http from 'http';
+import fs from 'fs';
 
-const url = 'file:///' + path.resolve(process.cwd(), 'index.html').replace(/\\/g, '/');
+// The game is served over http rather than opened from a file:// path: ES
+// modules are blocked by CORS on file://, so once the engine is split into
+// modules the page would not load at all. A throwaway static server costs
+// nothing and exercises the game the way it is actually served.
+const ROOT = process.cwd();
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript',
+               '.css':'text/css', '.json':'application/json', '.png':'image/png',
+               '.jpg':'image/jpeg', '.svg':'image/svg+xml', '.ico':'image/x-icon' };
+const server = http.createServer((req, res) => {
+  const rel = decodeURIComponent(req.url.split('?')[0]);
+  // Stand in for the scores endpoint. Answering exactly as a deployment with no
+  // DATABASE_URL does keeps Net on its offline path without a failed request in
+  // the console, so a real error stays visible among the noise.
+  if (rel === '/api/scores') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, configured: false, board: [] }));
+    return;
+  }
+  const file = path.join(ROOT, rel === '/' ? 'index.html' : rel);
+  if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+  fs.readFile(file, (err, buf) => {
+    if (err) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.end(buf);
+  });
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const url = 'http://127.0.0.1:' + server.address().port + '/index.html';
+
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
@@ -144,7 +174,7 @@ const storage = await page.evaluate(() => {
   catch (e) { return false; }
 });
 if (!storage) {
-  console.log('SKIP  logbook persistence   (localStorage unavailable on file://)');
+  check('logbook persistence — localStorage reachable', false, 'storage unavailable over http');
 } else {
   await page.evaluate(() => {
     window.SKY.Save.submit({ name: 'ZZZ', score: 424242, lvl: 7, rings: 9, chain: 6 });
@@ -164,5 +194,6 @@ if (!storage) {
 
 check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 await browser.close();
+await new Promise(r => server.close(r));
 console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
 process.exit(failed ? 1 : 0);
