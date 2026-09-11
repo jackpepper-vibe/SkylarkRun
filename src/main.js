@@ -15,13 +15,43 @@ import { DPR, H, W, camera, hctx, renderer, scene } from './view.js';
 import { SUNDIR, sky, sunGlow } from './sky.js';
 import { renderPost, rtScene } from './post.js';
 import { overlays, show, hideAll } from './overlays.js';
-import { Airfield, Fuel, Haz, Rings, Shadows, Terrain, TH, af, coursePathX, groundH, ridges } from './plane/world.js';
 import { updateDying } from './damage.js';
-import { Plane } from './plane/flight.js';
 "use strict";
 
-// The aircraft currently being flown. Selecting a mission set swaps this.
-let Craft = Plane;
+// ---------- choosing an aircraft ----------
+// A craft is loaded on demand rather than imported at the top. Each one brings
+// a world with it — a heightfield countryside, or a city of pooled buildings —
+// and building both to fly one would cost the memory and the load time twice.
+// A dynamic import defers the whole of it, geometry included, until chosen.
+let Craft = null;
+
+const CRAFT = {
+  plane: { label:"Skylark",  sub:"monoplane · open country",
+           load:()=>import('./plane/flight.js').then(m=>m.Plane) },
+  heli:  { label:"Rotor",    sub:"helicopter · night city",
+           load:()=>import('./heli/flight.js').then(m=>m.Helicopter) }
+};
+
+async function selectCraft(id){
+  const entry = CRAFT[id];
+  if(!entry) throw new Error("unknown craft: " + id);
+  Craft = await entry.load();
+  // The craft owns its own title card wording.
+  const set = (el,html)=>{ const n=document.getElementById(el); if(n) n.innerHTML=html; };
+  set("craftName", Craft.name);
+  set("craftTag", Craft.tagline);
+  set("ctrlLine", Craft.controlLine);
+  set("placardBody", Craft.placard);
+  Craft.reset();
+  popups.length=0;
+  Game.attractOn = true;
+  Game.state = S.MENU;
+  show("startOverlay");
+  renderBoard();
+  Net.load();
+  startLoop();
+  return Craft.id;
+}
 
 /* ============================================================
    SKYLARK RUN — open-cockpit monoplane air racing in Three.js.
@@ -67,27 +97,22 @@ function frame(t){
     renderFrame(t);
     return;
   }
-  if(Craft.ownsState(Game.state)){
+  if(Craft&&Craft.ownsState(Game.state)){
     // A sector opens on a hold — the run-up at the holding point, or the
     // rotors coming up to speed — before the controls go live.
     if(Game.readyT>0) Game.readyT-=dt;
     else Craft.tick(dt,t);
   }
   else if(Game.state===S.DYING) updateDying(dt);
-  else if(Game.state===S.MENU&&Game.attractOn) Craft.attract(dt);
-  Airfield.update(dt,t);
+  else if(Game.state===S.MENU&&Game.attractOn&&Craft) Craft.attract(dt);
+  if(Craft&&Craft.tickWorld) Craft.tickWorld(dt,t);
   audioTick();
   renderFrame(t);
 }
 function renderFrame(t){
-  Shadows.update();
+  if(!Craft){ return; }               // nothing to draw until one is chosen
+  Craft.rigWorld(t);
   Craft.rigCamera();
-  sky.position.set(P.x,0,P.z);
-  sunGlow.position.set(P.x+SUNDIR.x*4000, SUNDIR.y*4000, P.z+SUNDIR.z*4000);
-  for(const r of ridges){
-    const u=r.userData;
-    r.position.set(P.x*u.fac, u.h*0.30+TH.amp*0.5, P.z-u.dist);
-  }
   if(Game.postOn&&rtScene){ renderPost(); }
   else{ renderer.setRenderTarget(null); renderer.render(scene,camera); }
   Craft.drawCockpit(t);
@@ -155,9 +180,20 @@ async function startFlow(){
   if(recal)recal.style.display="none";
 })();
 
+document.querySelectorAll(".craftCard").forEach(b=>{
+  b.addEventListener("click",()=>{
+    b.disabled=true;
+    selectCraft(b.dataset.craft).catch(err=>{
+      b.disabled=false;
+      console.error(err);
+      const n=document.querySelector("#craftOverlay .tiny");
+      if(n) n.textContent="That aircraft failed to load — try the other one.";
+    });
+  });
+});
 document.getElementById("startBtn").addEventListener("click",startFlow);
 document.getElementById("retryBtn").addEventListener("click",()=>{
-  calibrate();resetWorld();hideAll();Game.state=Craft.startState;Game.readyT=Craft.startHold;checkOrient();
+  calibrate();Craft.reset();hideAll();Game.state=Craft.startState;Game.readyT=Craft.startHold;checkOrient();
 });
 document.getElementById("contBtn").addEventListener("click",()=>{
   Craft.nextSector();
@@ -260,21 +296,24 @@ window.addEventListener("keydown",e=>{
   }
 });
 
-Craft.reset();
-popups.length=0;
-Game.attractOn=true;
-renderBoard();            // show the logbook bests on the title card
+// Boot straight to the picker: no world exists until a craft is chosen.
+show("craftOverlay");
+renderBoard();            // the logbook bests are craft-independent
 Net.load();               // and the world leader, if the board is reachable
 
 // ---------- test hook: drives the game from a headless browser ----------
 window.SKY={
-  P,G,af,Rings,Fuel,Haz,Terrain,
+  P,G,
   state:()=>Game.state,
-  // start the sector the way the craft starts it — on the strip for the plane
+  craft:()=>Craft&&Craft.id,
+  /** Tests pick a craft first; nothing exists until they do. */
+  select:id=>selectCraft(id),
+  // start a sector the way this craft starts one
   takeoff(){ Craft.reset(); Game.attractOn=false; hideAll();
              document.getElementById("uiBtns").style.display="flex";
              Game.state=Craft.startState; Game.readyT=0; },
-  // and then get airborne, so tests begin in flight whichever craft it is
+  // and get airborne, whichever craft it is: the plane rolls, the rotor is
+  // already flying, so this simply ticks until the sector proper is running
   play(){ this.takeoff();
           for(let i=0;i<1200&&Game.state!==S.PLAY;i++){
             if(!Craft.ownsState(Game.state)) break;
@@ -290,16 +329,23 @@ window.SKY={
       else if(Game.state===S.DYING) updateDying(dt);
       else break;
     }
-    return {state: Game.state,z:Math.round(P.z),y:Math.round(P.y),dist:Math.round(P.dist),
-            score:Math.floor(G.score),rings:G.ringsHit+"/"+G.rings,fuel:Math.round(G.fuel),
-            lives:P.lives,label:G.landLabel,afPhase:af.phase};
+    return Object.assign({
+      state: Game.state, z:Math.round(P.z), y:Math.round(P.y), dist:Math.round(P.dist),
+      score:Math.floor(G.score), rings:G.ringsHit+"/"+G.rings, fuel:Math.round(G.fuel),
+      lives:P.lives, label:G.landLabel
+    }, Craft.debug.extra());
   },
   aimAt(x,y){ P.x=x; P.y=y; },
   hold(on){ Game.simHold=!!on; },
   Save,
-  craft:()=>Craft.id,
-  courseX:z=>coursePathX(z),
-  groundAt:(x,z)=>groundH(x,z),
+  get af(){ return Craft.debug.af; },
+  get Rings(){ return Craft.debug.Rings; },
+  get Fuel(){ return Craft.debug.Fuel; },
+  get Haz(){ return Craft.debug.Haz; },
+  get Terrain(){ return Craft.debug.Terrain; },
+  get pad(){ return Craft.debug.pad; },
+  courseX:z=>Craft.debug.courseX(z),
+  groundAt:(x,z)=>Craft.debug.groundAt(x,z),
   drawHUD:t=>Craft.drawCockpit(t),
   setMuted(m){ setMuted(m); },
   fx(on){ Game.postOn=on; }

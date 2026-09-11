@@ -10,14 +10,15 @@ import { clamp } from '../util.js';
 import { S, Game, TO, P, G, dents, popups, popup } from '../state.js';
 import { readInput } from '../input.js';
 import { chime, crashSound, fuelBeep, obstacleBeep } from '../audio.js';
-import { camera } from '../view.js';
+import { camera, scene } from '../view.js';
+import { SUNDIR, sky, sunGlow } from '../sky.js';
 import { TODS } from '../sky.js';
 import { Clouds } from '../clouds.js';
 import { WEATHERS, gDrops, updateRain } from '../weather.js';
 import { crash, levelClear, splats, startDying } from '../damage.js';
 import { LAT_CLAMP, SPEED0, SPEED_MAX, SPEED_RAMP, MAX_VX, MAX_VY, MAX_Y,
          MIN_CLEAR } from './config.js';
-import { applyTheme, Airfield, Fuel, Haz, Rings, Scatter, Terrain, THEMES, af,
+import { applyTheme, Airfield, Fuel, Haz, Rings, Scatter, Shadows, Terrain, TH, THEMES, af, ridges,
          burst, bursts, clearanceH, coursePathX, groundH, isWood, onField,
          updateBursts } from './world.js';
 import { drawHUD } from './hud.js';
@@ -315,7 +316,13 @@ function updateAttract(dt){
 export const Plane = {
   id: "plane",
   name: "Skylark",
-  tagline: "open cockpit · open country",
+  tagline: "open cockpit &middot; open country",
+  controlLine: "<b>TILT</b> to bank &middot; dive &middot; climb",
+  placard:
+    "Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>" +
+    "Thread the <b>rings</b> for points &middot; chain them for multipliers<br>" +
+    "Fuel balloons top the tank &middot; pylons, masts &amp; turbines bite<br>" +
+    "Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out",
   blurb: "A monoplane over sunlit countryside. Roll her down the strip, thread the rings, and grease the landing at the far end.",
 
   /** The state a sector begins in: on the strip, ready to roll. */
@@ -354,8 +361,28 @@ export const Plane = {
     }
   },
 
+  /** The airfield animates whether or not the pilot is flying it. */
+  tickWorld(dt, t){ Airfield.update(dt, t); },
+
+  /** Per-frame world dressing that follows the aircraft: the sky dome, the
+   *  sun glow and the parallax ridges all sit relative to the cockpit. */
+  rigWorld(){
+    Shadows.update();
+    sky.position.set(P.x,0,P.z);
+    sunGlow.position.set(P.x+SUNDIR.x*4000, SUNDIR.y*4000, P.z+SUNDIR.z*4000);
+    for(const r of ridges){
+      const u=r.userData;
+      r.position.set(P.x*u.fac, u.h*0.30+TH.amp*0.5, P.z-u.dist);
+    }
+  },
+
   drawCockpit(t){ drawHUD(t); },
 
-  /** Exposed for the headless suite. */
-  _internals: { update, updateTakeoff, updateRollout }
+  /** Craft-specific handles and readings for the headless suite. */
+  debug: {
+    af, Rings, Fuel, Haz, Terrain,
+    courseX: z => coursePathX(z),
+    groundAt: (x,z) => groundH(x,z),
+    extra: () => ({ afPhase: af.phase })
+  }
 };

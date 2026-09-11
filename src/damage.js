@@ -15,8 +15,14 @@ import { Clouds } from './clouds.js';
 import { Net, Save, renderBoard } from './logbook.js';
 import { show } from './overlays.js';
 
+// Windscreen damage, for the craft whose cockpit has a windscreen rather than
+// a cowling. Populated on the same hit that dents the plane.
+const cracks=[];
+
 // ---------- damage, death and the end of a run ----------
 function crash(reason){
+  cracks.push({x:W*(0.30+Math.random()*0.40), y:H*(0.15+Math.random()*0.35),
+               seed:Math.floor(Math.random()*1e4), arms:5+Math.floor(Math.random()*3)});
   if(P.invuln>0||Game.state===S.DYING) return;
   P.lives--; P.invuln=2.4; Game.shake=1; Game.flash=1; crashSound();
   if(navigator.vibrate)navigator.vibrate(180);
@@ -102,4 +108,4 @@ function levelClear(){
   show("clearOverlay");
 }
 
-export { birdStrike, crash, levelClear, splats, startDying, updateDying };
+export { cracks, birdStrike, crash, levelClear, splats, startDying, updateDying };
