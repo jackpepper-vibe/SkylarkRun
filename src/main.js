@@ -13,11 +13,16 @@ import { S, Game, TO, P, G, dents, popups, popup } from './state.js';
 import { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch,
          invertPitch, haveTilt, permState } from './input.js';
 import { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted } from './audio.js';
+import { DPR, H, W, camera, hctx, renderer, scene } from './view.js';
+import { SUNDIR, TODS, hemiLight, sky, skyTexs, sunGlow, sunLight } from './sky.js';
+import { renderPost, rtScene } from './post.js';
+import { Clouds, weatherCloudAlpha } from './clouds.js';
+import { WEATHERS, applyWeather, gDrops, updateRain } from './weather.js';
 "use strict";
 /* ============================================================
    SKYLARK RUN — open-cockpit monoplane air racing in Three.js.
    Procedural heightfield countryside, farmland patchwork, ring
-   course, weather, and a full runway approach & landing at the
+   course, Game.weather, and a full runway approach & landing at the
    end of every sector. Single file, no backend, no APIs.
 
    Systems are grouped as small managers with the same shape:
@@ -30,29 +35,6 @@ import { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep
 const CREAM="#fbf4e2", BRASS="#d9a441", INK="#241c12",
       RED="#d2452f", GREENL="#5fbf74", SKYC="#9fd2f2";
 
-// ---------- canvases / three ----------
-const glc=document.getElementById("gl"), hudc=document.getElementById("hud");
-const hctx=hudc.getContext("2d");
-let W=0,H=0,DPR=1;
-const renderer=new THREE.WebGLRenderer({canvas:glc,antialias:true});
-renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.0;
-renderer.outputEncoding=THREE.sRGBEncoding;
-const scene=new THREE.Scene();
-scene.fog=new THREE.Fog(0xbcd8ee,800,3400);
-const camera=new THREE.PerspectiveCamera(72,1,0.5,9000);
-camera.rotation.order="YXZ";
-function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,2);
-  W=window.innerWidth;H=window.innerHeight;
-  renderer.setPixelRatio(DPR); renderer.setSize(W,H);
-  camera.aspect=W/H; camera.updateProjectionMatrix();
-  hudc.width=W*DPR; hudc.height=H*DPR;
-  hudc.style.width=W+"px"; hudc.style.height=H+"px";
-  hctx.setTransform(DPR,0,0,DPR,0,0);
-}
-window.addEventListener("resize",resize); resize();
-
 // ---------- helpers ----------
 
 
@@ -64,138 +46,6 @@ window.addEventListener("resize",resize); resize();
 
 
 
-
-// ---------- lights ----------
-const hemiLight=new THREE.HemisphereLight(0xbcd8ee,0x4a5a34,0.95);
-scene.add(hemiLight);
-const sunLight=new THREE.DirectionalLight(0xfff2d0,1.35);
-sunLight.position.set(700,900,-900);
-scene.add(sunLight);
-const fillLight=new THREE.DirectionalLight(0x88a8d8,0.30);
-fillLight.position.set(-600,300,700);
-scene.add(fillLight);
-
-// ---------- time of day: every sector shifts the sun ----------
-const TODS=[
- {name:"MORNING",  sky:["#3f79c4","#7db2e4","#c3dcf0","#f2e6cc"], fog:0xc6dcf0, sunC:0xfff0cc, sunI:1.30,
-  hemiS:0xbcd8ee, hemiG:0x4a5a34, hemiI:0.95, exp:1.02, dir:[0.55,0.42,-0.72], glowO:0.55, ray:0.85, grass:0.98},
- {name:"MIDDAY",   sky:["#2b6fc6","#69a9e2","#b6d6ef","#e6f0f8"], fog:0xd2e6f4, sunC:0xffffff, sunI:1.45,
-  hemiS:0xcfe4f4, hemiG:0x5a6a3c, hemiI:1.05, exp:1.00, dir:[0.20,0.86,-0.47], glowO:0.42, ray:0.55, grass:1.06},
- {name:"AFTERNOON",sky:["#3a72b8","#79aada","#c9d6e4","#f0dcbc"], fog:0xd8dcdc, sunC:0xffe9c0, sunI:1.30,
-  hemiS:0xc4d4e4, hemiG:0x54603a, hemiI:0.92, exp:1.03, dir:[-0.52,0.50,-0.69], glowO:0.60, ray:0.90, grass:1.00},
- {name:"GOLDEN",   sky:["#2f5f9e","#6f92c4","#dfae82","#ffd8a2"], fog:0xe0c49a, sunC:0xffc884, sunI:1.20,
-  hemiS:0xd8bc98, hemiG:0x4a4028, hemiI:0.85, exp:1.06, dir:[-0.72,0.18,-0.67], glowO:0.75, ray:1.10, grass:0.94},
-];
-const SUNDIR=new THREE.Vector3(0.55,0.42,-0.72).normalize();
-
-// ---------- sky dome ----------
-function makeSkyTexture(tod){
-  const td=TODS[tod];
-  const c=document.createElement("canvas"); c.width=1024; c.height=512;
-  const x=c.getContext("2d");
-  const g=x.createLinearGradient(0,0,0,512);
-  g.addColorStop(0,td.sky[0]); g.addColorStop(0.34,td.sky[1]);
-  g.addColorStop(0.62,td.sky[2]); g.addColorStop(1,td.sky[3]);
-  x.fillStyle=g; x.fillRect(0,0,1024,512);
-  // high cirrus streaks
-  x.globalAlpha=0.30;
-  x.fillStyle="#ffffff";
-  for(let i=0;i<70;i++){
-    const cy=hash(i*3.7+tod)*190, cx=hash(i*5.1+tod)*1024;
-    const w=60+hash(i*7.3)*230, h=2+hash(i*9.1)*5;
-    x.beginPath(); x.ellipse(cx,cy,w,h,0,0,7); x.fill();
-  }
-  // cumulus band sitting on the horizon
-  x.globalAlpha=1;
-  for(let i=0;i<46;i++){
-    const cx=hash(i*11.3+tod*3)*1024, cy=250+hash(i*13.7+tod)*140;
-    const sc=0.5+hash(i*17.1)*1.4;
-    for(let p=0;p<7;p++){
-      const px=cx+(hash(i*19+p)-0.5)*130*sc, py=cy+(hash(i*23+p)-0.5)*26*sc;
-      const r=(14+hash(i*29+p)*26)*sc;
-      const grd=x.createRadialGradient(px,py-r*0.25,r*0.15,px,py,r);
-      grd.addColorStop(0,"rgba(255,255,255,0.95)");
-      grd.addColorStop(0.55,"rgba(246,248,252,0.7)");
-      grd.addColorStop(1,"rgba(214,226,240,0)");
-      x.fillStyle=grd; x.beginPath(); x.arc(px,py,r,0,7); x.fill();
-    }
-  }
-  const t=new THREE.CanvasTexture(c);
-  t.encoding=THREE.sRGBEncoding;
-  return t;
-}
-const skyTexs=[0,1,2,3].map(makeSkyTexture);
-const sky=new THREE.Mesh(
-  new THREE.SphereGeometry(5200,32,20),
-  new THREE.MeshBasicMaterial({map:skyTexs[0],side:THREE.BackSide,fog:false,depthWrite:false})
-);
-sky.rotation.y=Math.PI*0.15;
-sky.renderOrder=-2;
-scene.add(sky);
-
-// ---------- sun disc + haze ----------
-const sunGlow=(()=>{
-  const c=document.createElement("canvas"); c.width=128; c.height=128;
-  const x=c.getContext("2d");
-  const g=x.createRadialGradient(64,64,2,64,64,64);
-  g.addColorStop(0,"rgba(255,255,244,1)");
-  g.addColorStop(0.12,"rgba(255,246,214,0.85)");
-  g.addColorStop(0.42,"rgba(255,226,164,0.28)");
-  g.addColorStop(1,"rgba(255,220,160,0)");
-  x.fillStyle=g; x.fillRect(0,0,128,128);
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
-    blending:THREE.AdditiveBlending,depthWrite:false,fog:false,opacity:0.55}));
-  sp.scale.set(1500,1500,1);
-  scene.add(sp); return sp;
-})();
-
-// ---------- volumetric-ish cloud field (billboards, recycled ahead) ----------
-const cloudTex=(()=>{
-  const c=document.createElement("canvas"); c.width=256; c.height=160;
-  const x=c.getContext("2d");
-  for(let p=0;p<10;p++){
-    const px=40+hash(p*3.1)*176, py=95-hash(p*7.7)*46;
-    const r=26+hash(p*11.3)*40;
-    const g=x.createRadialGradient(px,py-r*0.3,r*0.1,px,py,r);
-    g.addColorStop(0,"rgba(255,255,255,1)");
-    g.addColorStop(0.5,"rgba(250,252,255,0.82)");
-    g.addColorStop(1,"rgba(210,224,240,0)");
-    x.fillStyle=g; x.beginPath(); x.arc(px,py,r,0,7); x.fill();
-  }
-  // shaded underside
-  const sg=x.createLinearGradient(0,60,0,160);
-  sg.addColorStop(0,"rgba(255,255,255,0)");
-  sg.addColorStop(1,"rgba(150,170,195,0.40)");
-  x.globalCompositeOperation="source-atop";
-  x.fillStyle=sg; x.fillRect(0,0,256,160);
-  x.globalCompositeOperation="source-over";
-  const t=new THREE.CanvasTexture(c); t.encoding=THREE.sRGBEncoding; return t;
-})();
-const Clouds={
-  N:56, list:[],
-  build(){
-    for(let i=0;i<this.N;i++){
-      const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:cloudTex,transparent:true,
-        opacity:0.9,depthWrite:false,fog:true}));
-      sp.renderOrder=-1;
-      scene.add(sp);
-      this.list.push({sp,z:0});
-    }
-  },
-  place(c,ahead){
-    const spread=1500;
-    c.z=P.z-(ahead?VIEW*(0.5+Math.random()*0.75):Math.random()*VIEW*1.2);
-    const s=200+Math.random()*420;
-    c.sp.position.set((Math.random()-0.5)*spread*2, MAX_Y+40+Math.random()*260, c.z);
-    c.sp.scale.set(s,s*0.62,1);
-    c.sp.material.opacity=(0.55+Math.random()*0.4)*weatherCloudAlpha();
-  },
-  reset(){ for(const c of this.list) this.place(c,false); },
-  update(){
-    for(const c of this.list) if(c.z>P.z+400) this.place(c,true);
-  }
-};
-Clouds.build();
 
 // ---------- distant ridge backdrops (two parallax layers) ----------
 function makeRidgeTexture(seed,col,snow){
@@ -1502,56 +1352,10 @@ const Airfield={
     }else{
       af.strobes.forEach(s=>{ s.material.opacity=0; });
     }
-    if(af.windsockPivot) af.windsockPivot.rotation.y=Math.PI/2+Math.sin(t*0.0013)*0.35+wind*0.02;
+    if(af.windsockPivot) af.windsockPivot.rotation.y=Math.PI/2+Math.sin(t*0.0013)*0.35+Game.wind*0.02;
   }
 };
 Airfield.build();
-
-// ---------- weather ----------
-const WEATHERS=["CLEAR","BREEZY","SHOWERS","THERMALS"];
-let weather=0, wind=0, windTarget=0, gustEnd=0, nextGust=0, thermal=0;
-const gDrops=[];                                  // droplets on the little windscreen
-function weatherCloudAlpha(){ return weather===2?1.0:(weather===3?0.8:0.62); }
-const RAIN_N=340;
-const rain=(()=>{
-  const pos=new Float32Array(RAIN_N*3);
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute("position",new THREE.BufferAttribute(pos,3));
-  const pts=new THREE.Points(geo,new THREE.PointsMaterial({color:0xdfe8f2,size:1.5,
-    transparent:true,opacity:0.55,sizeAttenuation:true,depthWrite:false}));
-  pts.visible=false; scene.add(pts);
-  return pts;
-})();
-function resetDrop(arr,i,init){
-  arr[i*3]  =P.x+(Math.random()-0.5)*280;
-  arr[i*3+1]=P.y+(init?Math.random()*160-60:70+Math.random()*40);
-  arr[i*3+2]=P.z-Math.random()*300+40;
-}
-function updateRain(dt){
-  if(weather!==2){ rain.visible=false; return; }
-  rain.visible=true;
-  const arr=rain.geometry.attributes.position.array;
-  for(let i=0;i<RAIN_N;i++){
-    arr[i*3+1]-=(150+P.speed*0.5)*dt;
-    arr[i*3+2]+=P.speed*0.55*dt;
-    if(arr[i*3+1]<P.y-90||arr[i*3+2]>P.z+40) resetDrop(arr,i,false);
-  }
-  rain.geometry.attributes.position.needsUpdate=true;
-}
-function applyWeather(lvl){
-  weather=lvl<3?0:[0,1,2,3,1,2,0,3][(lvl-3)%8];
-  gDrops.length=0;
-  wind=0; windTarget=0; thermal=0;
-  nextGust=performance.now()+3000;
-  const arr=rain.geometry.attributes.position.array;
-  for(let i=0;i<RAIN_N;i++) resetDrop(arr,i,true);
-  rain.geometry.attributes.position.needsUpdate=true;
-  rain.visible=weather===2;
-  setRain(weather===2);
-  scene.fog.far=weather===2?2400:(weather===3?2900:3400);
-  scene.fog.near=weather===2?500:800;
-  for(const c of Clouds.list) c.sp.material.opacity=(0.55+Math.random()*0.4)*weatherCloudAlpha();
-}
 
 // ---------- sector setup ----------
 function applyTheme(lvl){
@@ -1569,116 +1373,6 @@ function applyTheme(lvl){
   sunGlow.material.opacity=td.glowO;
   Shadows.sun();
   applyWeather(lvl);
-}
-
-// ---------- post-processing: hand-rolled bloom + god rays (core three only) ----------
-const postCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
-const postScene=new THREE.Scene();
-const postQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),null);
-postScene.add(postQuad);
-const PVS="varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}";
-const brightMat=new THREE.ShaderMaterial({
-  uniforms:{tex:{value:null},th:{value:0.72}},
-  vertexShader:PVS,fragmentShader:[
-    "varying vec2 vUv;uniform sampler2D tex;uniform float th;",
-    "void main(){",
-    "  vec3 c=texture2D(tex,vUv).rgb;",
-    "  float l=dot(c,vec3(.299,.587,.114));",
-    "  gl_FragColor=vec4(c*smoothstep(th,th+.30,l),1.);",
-    "}"].join("\n"),depthTest:false,depthWrite:false});
-const blurMat=new THREE.ShaderMaterial({
-  uniforms:{tex:{value:null},dir:{value:new THREE.Vector2(1,0)},texel:{value:new THREE.Vector2()}},
-  vertexShader:PVS,fragmentShader:[
-    "varying vec2 vUv;uniform sampler2D tex;uniform vec2 dir,texel;",
-    "void main(){",
-    "  vec2 o=dir*texel;",
-    "  vec3 c=texture2D(tex,vUv).rgb*.227;",
-    "  c+=(texture2D(tex,vUv+o*1.384).rgb+texture2D(tex,vUv-o*1.384).rgb)*.316;",
-    "  c+=(texture2D(tex,vUv+o*3.230).rgb+texture2D(tex,vUv-o*3.230).rgb)*.070;",
-    "  gl_FragColor=vec4(c,1.);",
-    "}"].join("\n"),depthTest:false,depthWrite:false});
-const raysMat=new THREE.ShaderMaterial({
-  uniforms:{tex:{value:null},sunUv:{value:new THREE.Vector2(0.5,0.5)},strength:{value:0}},
-  vertexShader:PVS,fragmentShader:[
-    "varying vec2 vUv;uniform sampler2D tex;uniform vec2 sunUv;uniform float strength;",
-    "void main(){",
-    "  vec2 dv=(sunUv-vUv)*0.050;",
-    "  vec2 uv=vUv; vec3 acc=vec3(0.0); float w=1.0,tot=0.0;",
-    "  for(int i=0;i<14;i++){uv+=dv;acc+=texture2D(tex,uv).rgb*w;tot+=w;w*=0.88;}",
-    "  gl_FragColor=vec4(acc/tot*strength,1.0);",
-    "}"].join("\n"),depthTest:false,depthWrite:false});
-const compMat=new THREE.ShaderMaterial({
-  uniforms:{base:{value:null},bloom:{value:null},rays:{value:null},
-    k:{value:0.62},kr:{value:0.7},time:{value:0}},
-  vertexShader:PVS,fragmentShader:[
-    "varying vec2 vUv;",
-    "uniform sampler2D base,bloom,rays;",
-    "uniform float k,kr,time;",
-    "void main(){",
-    "  vec2 cc=vUv-0.5;",
-    "  float edge=dot(cc,cc)*4.0;",
-    "  vec2 off=cc*0.005*edge;",                        // chromatic aberration at the edges
-    "  vec3 c;",
-    "  c.r=texture2D(base,vUv-off).r;",
-    "  c.g=texture2D(base,vUv).g;",
-    "  c.b=texture2D(base,vUv+off).b;",
-    "  c+=texture2D(bloom,vUv).rgb*k+texture2D(rays,vUv).rgb*kr;",
-    "  float l=dot(c,vec3(.299,.587,.114));",           // warm daylight grade
-    "  c=mix(c,c*vec3(0.94,1.00,1.06),(1.0-smoothstep(0.0,0.5,l))*0.28);",
-    "  c=mix(c,c*vec3(1.07,1.01,0.90),smoothstep(0.50,1.0,l)*0.34);",
-    "  c=(c-0.5)*1.05+0.505;",
-    "  float g=fract(sin(dot(vUv+fract(time),vec2(12.9898,78.233)))*43758.5453);",
-    "  c+=(g-0.5)*0.022;",                              // fine grain
-    "  c*=1.0-edge*0.10;",                              // gentle vignette
-    "  gl_FragColor=vec4(pow(max(c,vec3(0.0)),vec3(0.4545)),1.0);",
-    "}"].join("\n"),depthTest:false,depthWrite:false});
-let rtScene=null,rtB=null,rtP=null,rtQ=null,rtR=null;
-function makeRTs(){
-  if(rtScene){rtScene.dispose();rtB.dispose();rtP.dispose();rtQ.dispose();rtR.dispose();}
-  const w=Math.max(4,Math.floor(W*DPR)),h=Math.max(4,Math.floor(H*DPR));
-  const pars={minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,format:THREE.RGBAFormat};
-  rtScene=(renderer.capabilities.isWebGL2&&THREE.WebGLMultisampleRenderTarget)
-    ? new THREE.WebGLMultisampleRenderTarget(w,h,pars)
-    : new THREE.WebGLRenderTarget(w,h,pars);
-  rtB=new THREE.WebGLRenderTarget(w>>1,h>>1,pars);
-  rtP=new THREE.WebGLRenderTarget(w>>2,h>>2,pars);
-  rtQ=new THREE.WebGLRenderTarget(w>>2,h>>2,pars);
-  rtR=new THREE.WebGLRenderTarget(w>>2,h>>2,pars);
-}
-makeRTs();
-window.addEventListener("resize",makeRTs);
-function quadPass(mat,target){
-  postQuad.material=mat;
-  renderer.setRenderTarget(target);
-  renderer.render(postScene,postCam);
-}
-const _sunV=new THREE.Vector3();
-function renderPost(){
-  renderer.setRenderTarget(rtScene);
-  renderer.render(scene,camera);
-  brightMat.uniforms.tex.value=rtScene.texture;
-  quadPass(brightMat,rtB);
-  _sunV.set(P.x+SUNDIR.x*4000,SUNDIR.y*4000,P.z+SUNDIR.z*4000).project(camera);
-  let sI=0,su=0.5,sv=0.5;
-  if(_sunV.z<1){
-    su=_sunV.x*0.5+0.5; sv=_sunV.y*0.5+0.5;
-    const d=Math.hypot(su-0.5,sv-0.5);
-    sI=Math.max(0,1-d*1.5)*(weather===2?0.2:1)*TODS[Game.curTod].ray;
-  }
-  raysMat.uniforms.tex.value=rtB.texture;
-  raysMat.uniforms.sunUv.value.set(su,sv);
-  raysMat.uniforms.strength.value=sI;
-  quadPass(raysMat,rtR);
-  blurMat.uniforms.texel.value.set(1/rtP.width,1/rtP.height);
-  blurMat.uniforms.tex.value=rtB.texture; blurMat.uniforms.dir.value.set(1,0); quadPass(blurMat,rtP);
-  blurMat.uniforms.tex.value=rtP.texture; blurMat.uniforms.dir.value.set(0,1); quadPass(blurMat,rtQ);
-  blurMat.uniforms.tex.value=rtQ.texture; blurMat.uniforms.dir.value.set(1,0); quadPass(blurMat,rtP);
-  blurMat.uniforms.tex.value=rtP.texture; blurMat.uniforms.dir.value.set(0,1); quadPass(blurMat,rtQ);
-  compMat.uniforms.base.value=rtScene.texture;
-  compMat.uniforms.bloom.value=rtQ.texture;
-  compMat.uniforms.rays.value=rtR.texture;
-  compMat.uniforms.time.value=performance.now()*0.001;
-  quadPass(compMat,null);
 }
 
 // ---------- damage, death and the end of a run ----------
@@ -1885,24 +1579,24 @@ function update(dt,t){
   P.pz=P.z;
 
   // weather: gusts push you sideways, thermals lift you
-  if(weather===1||weather===2){
+  if(Game.weather===1||Game.weather===2){
     const nowW=performance.now();
-    if(nowW>nextGust){
-      windTarget=(Math.random()<0.5?-1:1)*(16+Math.random()*20);
-      popup("GUST "+(windTarget>0?"→":"←"));
-      gustEnd=nowW+2400;
-      nextGust=nowW+4200+Math.random()*4200;
+    if(nowW>Game.nextGust){
+      Game.windTarget=(Math.random()<0.5?-1:1)*(16+Math.random()*20);
+      popup("GUST "+(Game.windTarget>0?"→":"←"));
+      Game.gustEnd=nowW+2400;
+      Game.nextGust=nowW+4200+Math.random()*4200;
     }
-    if(nowW>gustEnd)windTarget=0;
-  }else windTarget=0;
-  if(weather===3){
-    thermal=Math.sin(P.z*0.0016)*Math.cos(P.x*0.0021)*16;
-  }else thermal=0;
-  wind+=(windTarget-wind)*Math.min(1,dt*2);
+    if(nowW>Game.gustEnd)Game.windTarget=0;
+  }else Game.windTarget=0;
+  if(Game.weather===3){
+    Game.thermal=Math.sin(P.z*0.0016)*Math.cos(P.x*0.0021)*16;
+  }else Game.thermal=0;
+  Game.wind+=(Game.windTarget-Game.wind)*Math.min(1,dt*2);
 
   const cx=coursePathX(P.z);
-  P.x=clamp(P.x+(P.vx+wind)*dt, cx-LAT_CLAMP, cx+LAT_CLAMP);
-  P.y=clamp(P.y+(P.vy+thermal)*dt, -50, MAX_Y+60);
+  P.x=clamp(P.x+(P.vx+Game.wind)*dt, cx-LAT_CLAMP, cx+LAT_CLAMP);
+  P.y=clamp(P.y+(P.vy+Game.thermal)*dt, -50, MAX_Y+60);
   if(!af.active||af.phase!==1) P.speed=Math.min(SPEED_MAX,P.speed+SPEED_RAMP*dt);
   P.z-=P.speed*dt; P.dist+=P.speed*dt;
   if(P.invuln>0)P.invuln-=dt;
@@ -1929,9 +1623,9 @@ function update(dt,t){
   Scatter.update();
   Clouds.update();
 
-  // Game.whiteout in the cloud base — height is not free
+  // whiteout in the cloud base — height is not free
   const over=P.y-(MAX_Y-40);
-  Game.whiteout=clamp(over/55,0,1)*(weather===2?1:0.85);
+  Game.whiteout=clamp(over/55,0,1)*(Game.weather===2?1:0.85);
 
   // climbing away from the departure strip: let it go once it is behind us
   // wait until the grading blend has already faded out, so nothing shifts underneath us
@@ -2032,7 +1726,7 @@ function nextSector(){
   P.invuln=0;
   if(G.lvl===2)popup("NEW: PYLONS, MASTS & TURBINES");
   popup("SECTOR "+G.lvl+": "+THEMES[Game.curTheme].name+" · "+TODS[Game.curTod].name+
-        (weather?" · "+WEATHERS[weather]:""));
+        (Game.weather?" · "+WEATHERS[Game.weather]:""));
 }
 
 // ---------- HUD: the open cockpit, drawn in 2D over the world ----------
@@ -2324,7 +2018,7 @@ function drawHUD(t){
     hctx.globalAlpha=1;
     drawSplats();
     // rain beading on the glass
-    if(weather===2){
+    if(Game.weather===2){
       const nowR=performance.now();
       if(Math.random()<0.35&&gDrops.length<70)
         gDrops.push({x:W*(0.35+Math.random()*0.30),y:wsTop+Math.random()*(cowlTop-wsTop),
@@ -2439,7 +2133,7 @@ function drawHUD(t){
     hctx.beginPath();hctx.arc(x,y,r*1.18,0,7);hctx.stroke();
     hctx.beginPath();hctx.arc(x,y,r,0,7);hctx.clip();
     hctx.fillStyle="#2a2620";hctx.fillRect(x-r,y-r,r*2,r*2);
-    const head=(-P.roll*26+wind*0.5+360)%360;       // the card swings as you bank
+    const head=(-P.roll*26+Game.wind*0.5+360)%360;       // the card swings as you bank
     hctx.fillStyle="#e8e0c8";
     hctx.font="700 "+Math.max(8,r*0.44)+"px ui-monospace,Menlo,Consolas,monospace";
     hctx.textAlign="center";hctx.textBaseline="middle";

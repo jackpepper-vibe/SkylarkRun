@@ -32,6 +32,9 @@ export const Game = {
   attractOn: false,       // the countryside flying itself behind the menu
   simHold: false,         // test hook: keep rendering, stop the clock
   looping: true,          // cleared on exit so the aircraft stops burning battery
+  // Weather sits here rather than in weather.js so the cloud field can read it
+  // without the two modules importing each other.
+  weather: 0, wind: 0, windTarget: 0, gustEnd: 0, nextGust: 0, thermal: 0,
   orientPaused: false,
   prePauseState: S.PLAY
 };
