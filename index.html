@@ -99,14 +99,18 @@
   <div class="sub">open cockpit &middot; open country</div>
   <div class="stat" id="bestLine" style="display:none;margin-bottom:12px;"></div>
   <div class="placard">
-    <b>TILT</b> to bank &middot; dive &middot; climb<br>
+    <span id="ctrlLine"><b>TILT</b> to bank &middot; dive &middot; climb</span><br>
     Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>
     Thread the <b>rings</b> for points &middot; chain them for multipliers<br>
     Fuel balloons top the tank &middot; pylons, masts &amp; turbines bite<br>
     Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out
   </div>
   <button id="startBtn" class="btn">&#9654;&ensp;Enable tilt &amp; fly</button>
-  <div class="tiny">Landscape required &middot; headphones recommended &middot; desktop: WASD / arrows</div>
+  <label id="invertRow" class="tiny" style="display:none;align-items:center;justify-content:center;gap:8px;margin-top:12px;cursor:pointer;">
+    <input type="checkbox" id="invertChk" style="width:16px;height:16px;accent-color:#4de8ff;cursor:pointer;">
+    <span>Joystick pitch &mdash; push forward (&uarr; / W) to descend</span>
+  </label>
+  <div class="tiny" id="footLine">Landscape required &middot; headphones recommended &middot; desktop: WASD / arrows</div>
 </div>
 
 <div id="pauseOverlay" class="overlay hidden">
@@ -1973,6 +1977,36 @@ function renderPost(){
 }
 
 // ---------- input (tilt + touch + keys) ----------
+
+// Whether this device can actually tilt. Desktop browsers still define
+// DeviceOrientationEvent even though no sensor will ever fire it, so asking
+// whether the constructor exists is not enough — a laptop would be offered an
+// "Enable tilt" button that could never do anything. Judge it on the kind of
+// input the device really has instead.
+// navigator.maxTouchPoints is no help here — desktop Chrome reports 10 — and
+// neither is `ontouchstart`. A coarse primary pointer is the signal that
+// actually separates a phone or tablet from a machine with a mouse, including
+// touchscreen laptops, which have a fine pointer and no gyroscope.
+const CAN_TILT=(function(){
+  if(typeof DeviceOrientationEvent==="undefined")return false;
+  if(!window.matchMedia)return false;
+  return window.matchMedia("(pointer: coarse)").matches;
+})();
+
+// Pitch on the keyboard follows the joystick convention by default: pushing
+// forward puts the nose down. Anyone who prefers the arrows to move the
+// aeroplane the way they point can switch it back, and the choice sticks.
+const INVERT_KEY="skylark-invert-pitch";
+let invertPitch=true;
+try{
+  const saved=localStorage.getItem(INVERT_KEY);
+  if(saved!==null)invertPitch=saved==="1";
+}catch(e){/* storage blocked — fall back to the default */}
+function setInvertPitch(on){
+  invertPitch=!!on;
+  try{localStorage.setItem(INVERT_KEY,invertPitch?"1":"0");}catch(e){}
+}
+
 let rawBeta=0,rawGamma=0,haveTilt=false,calB=0,calG=0,permState="unknown";
 window.addEventListener("deviceorientation",e=>{
   if(e.beta===null)return;
@@ -2012,8 +2046,11 @@ function readInput(){
   }
   if(keys["arrowleft"]||keys["a"])steer=-1;
   if(keys["arrowright"]||keys["d"])steer=1;
-  if(keys["arrowup"]||keys["w"])pitch=1;
-  if(keys["arrowdown"]||keys["s"])pitch=-1;
+  // Positive pitch raises the nose. Under joystick pitch, pushing the stick
+  // forward (up / W) lowers it instead, and easing back (down / S) raises it —
+  // which also keeps "ease back at Vr" literally true on the takeoff roll.
+  if(keys["arrowup"]||keys["w"])pitch=invertPitch?-1:1;
+  if(keys["arrowdown"]||keys["s"])pitch=invertPitch?1:-1;
   if(touchActive){
     steer=clamp(tDX/90,-1,1);
     pitch=clamp(-tDY/70,-1,1);
@@ -3326,7 +3363,9 @@ function drawHUD(t){
     hctx.restore();
   }
   // ---- tilt status ----
-  if(state===S.PLAY&&!haveTilt){
+  // Only worth saying on a device that could have tilted; on a desktop the
+  // keys are the expected controls, not a fallback.
+  if(state===S.PLAY&&!haveTilt&&CAN_TILT){
     hctx.fillStyle="#ffd98a";
     hctx.font="600 "+Math.max(9,H*0.020)+"px ui-monospace,Menlo,Consolas,monospace";
     hctx.textAlign="left";hctx.textBaseline="middle";
@@ -3428,12 +3467,12 @@ window.addEventListener("orientationchange",checkOrient);
 async function startFlow(){
   initAudio();
   if(AC&&AC.state==="suspended")AC.resume();
-  try{
-    if(typeof DeviceOrientationEvent!=="undefined"&&
-       typeof DeviceOrientationEvent.requestPermission==="function"){
+  if(!CAN_TILT){
+    permState="unsupported";
+  }else try{
+    if(typeof DeviceOrientationEvent.requestPermission==="function"){
       permState=await DeviceOrientationEvent.requestPermission();
-    }else if(typeof DeviceOrientationEvent==="undefined"){permState="unsupported";}
-    else{permState="granted";}
+    }else{permState="granted";}
   }catch(e){permState="denied";}
   try{await document.documentElement.requestFullscreen({navigationUI:"hide"});}catch(e){}
   try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock("landscape");}catch(e){}
@@ -3444,6 +3483,25 @@ async function startFlow(){
     state=S.TAKEOFF;readyT=2.0;checkOrient();
   },350);
 }
+// A device that cannot tilt shouldn't be offered tilt: the button, the control
+// line and the recalibrate option all describe the keyboard instead.
+(function setupControlsUI(){
+  const chk=document.getElementById("invertChk");
+  chk.checked=invertPitch;
+  chk.addEventListener("change",()=>setInvertPitch(chk.checked));
+
+  if(CAN_TILT)return;
+
+  document.getElementById("startBtn").innerHTML="&#9654;&ensp;Fly";
+  document.getElementById("ctrlLine").innerHTML=
+    "<b>ARROWS</b> or <b>WASD</b> to bank &middot; dive &middot; climb";
+  document.getElementById("footLine").innerHTML=
+    "Headphones recommended &middot; &larr; &rarr; bank &middot; &uarr; &darr; pitch";
+  document.getElementById("invertRow").style.display="flex";
+  const recal=document.getElementById("recalBtn");
+  if(recal)recal.style.display="none";
+})();
+
 document.getElementById("startBtn").addEventListener("click",startFlow);
 document.getElementById("retryBtn").addEventListener("click",()=>{
   calibrate();resetWorld();hideAll();state=S.TAKEOFF;readyT=2.0;checkOrient();

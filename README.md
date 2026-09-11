@@ -16,11 +16,35 @@ screen as a PWA.
 | --- | --- |
 | Tilt (phone) | bank, dive, climb |
 | Drag (touch) | same, when tilt is unavailable |
-| WASD / arrows | same, on desktop |
+| &larr; &rarr; / A D | bank, on desktop |
+| &uarr; &darr; / W S | pitch, on desktop |
 | `Esc` / `P` | pause |
 
 Landscape orientation is required on phones; the tilt datum is captured when you
 tap **Enable tilt & fly**, and can be re-taken from the pause screen.
+
+### Tilt is only offered where tilt exists
+
+The start screen adapts to the device. Desktop gets **Fly**, keyboard control
+hints and no mention of tilt; phones and tablets get **Enable tilt & fly**.
+
+Capability is decided by `(pointer: coarse)` alone. `navigator.maxTouchPoints`
+is useless for this — desktop Chrome reports **10** — and `ontouchstart` is no
+better. A coarse primary pointer is what actually separates a phone from a
+machine with a mouse, and it correctly excludes touchscreen laptops, which have
+a fine pointer and no gyroscope.
+
+### Pitch direction
+
+Keyboard pitch follows the **joystick convention** by default: pushing forward
+(&uarr; / W) puts the nose *down*, easing back (&darr; / S) brings it *up*. That
+also makes "ease back at Vr" literally true on the takeoff roll — the rotate
+check looks for a nose-up input.
+
+The checkbox on the start screen switches it back to direct control, where the
+arrows move the aeroplane the way they point. The choice persists in
+`localStorage` under `skylark-invert-pitch`. Tilt and drag are unaffected;
+tilting the nose down has always meant descend, which needs no convention.
 
 **Exit game** on the pause screen shuts the flight down properly — engine off,
 out of fullscreen, orientation released, rendering stopped, logbook flushed —
