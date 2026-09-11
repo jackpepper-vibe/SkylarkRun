@@ -8,8 +8,8 @@
 /* global THREE */
 import { G, Game, P, S, dents, popup } from './state.js';
 import { chime, crashSound, deathSpiral, thud } from './audio.js';
-import { SPEED0 } from './config.js';
-import { Scatter, THEMES, Terrain, burst, groundH } from './countryside.js';
+import { SPEED0 } from './plane/config.js';
+import { Scatter, THEMES, Terrain, burst, groundH } from './plane/world.js';
 import { H, W } from './view.js';
 import { Clouds } from './clouds.js';
 import { Net, Save, renderBoard } from './logbook.js';

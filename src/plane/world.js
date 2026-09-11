@@ -8,14 +8,14 @@
 // crash() directly. The two modules import each other, which ES modules allow
 // because neither touches the other at evaluation time — only inside handlers.
 /* global THREE */
-import { crash, birdStrike } from './damage.js';
-import { applyWeather } from './weather.js';
-import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } from './util.js';
-import { scene, renderer } from './view.js';
+import { crash, birdStrike } from '../damage.js';
+import { applyWeather } from '../weather.js';
+import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } from '../util.js';
+import { scene, renderer } from '../view.js';
 import { CANOPY_H, PR, VIEW } from './config.js';
-import { SUNDIR, TODS, hemiLight, sky, skyTexs, sunGlow, sunLight } from './sky.js';
-import { G, Game, P, S, TO, popup } from './state.js';
-import { chime, radioCall, thud } from './audio.js';
+import { SUNDIR, TODS, hemiLight, sky, skyTexs, sunGlow, sunLight } from '../sky.js';
+import { G, Game, P, S, TO, popup } from '../state.js';
+import { chime, radioCall, thud } from '../audio.js';
 
 // ---------- distant ridge backdrops (two parallax layers) ----------
 function makeRidgeTexture(seed,col,snow){

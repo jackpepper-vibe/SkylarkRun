@@ -8,7 +8,7 @@
 import { Game, P } from './state.js';
 import { hash } from './util.js';
 import { scene } from './view.js';
-import { MAX_Y, VIEW } from './config.js';
+import { MAX_Y, VIEW } from './plane/config.js';
 
 // ---------- volumetric-ish cloud field (billboards, recycled ahead) ----------
 // How opaque the cloud billboards are drawn: overcast and rain thicken them.

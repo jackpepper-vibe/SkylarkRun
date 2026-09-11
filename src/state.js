@@ -8,7 +8,7 @@
 // Objects that are only ever mutated in place — the aircraft, the scoreboard —
 // need no such wrapper and are exported directly.
 
-import { SPEED0 } from './config.js';
+import { SPEED0 } from './plane/config.js';
 
 // af.phase: 0 idle · 1 approach · 2 rollout · 3 approach over · 4 take-off roll · 5 climb-out
 export const S = { MENU:0, PLAY:1, PAUSE:2, OVER:3, CLEAR:4, DYING:5, ROLLOUT:6, TAKEOFF:7 };

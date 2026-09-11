@@ -8,14 +8,14 @@
 // This is the most aircraft-specific part of the game, so it is the piece a
 // helicopter will replace wholesale rather than reuse.
 /* global THREE */
-import { H, W, camera, hctx } from './view.js';
-import { clamp, hash } from './util.js';
-import { splats } from './damage.js';
-import { G, Game, P, S, TO, dents, popups } from './state.js';
-import { gDrops } from './weather.js';
+import { H, W, camera, hctx } from '../view.js';
+import { clamp, hash } from '../util.js';
+import { splats } from '../damage.js';
+import { G, Game, P, S, TO, dents, popups } from '../state.js';
+import { gDrops } from '../weather.js';
 import { CANOPY_H, LAT_CLAMP, MAX_VX, MAX_VY, MAX_Y, MIN_CLEAR, PR, SPEED0, SPEED_MAX, SPEED_RAMP, VIEW } from './config.js';
-import { Airfield, Fuel, Haz, Rings, af, coursePathX, groundH } from './countryside.js';
-import { CAN_TILT, haveTilt, permState } from './input.js';
+import { Airfield, Fuel, Haz, Rings, af, coursePathX, groundH } from './world.js';
+import { CAN_TILT, haveTilt, permState } from '../input.js';
 
 // ---------- HUD: the open cockpit, drawn in 2D over the world ----------
 const _mark=new THREE.Vector3();
