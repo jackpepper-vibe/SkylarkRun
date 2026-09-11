@@ -99,7 +99,7 @@ const course = await page.evaluate(() => {
   const S = window.SKY;
   S.play();
   for (let i = 0; i < 300; i++) {
-    const g = S.Rings.nextGate();
+    const g = S.world().Rings.nextGate();
     if (g) { S.P.x += (g.x - S.P.x) * 0.35; S.P.y += (g.g.position.y - S.P.y) * 0.35; }
     const r = S.step(6);
     if (r.state !== 1) return r;
@@ -114,7 +114,7 @@ const fly = (mode) => page.evaluate((mode) => {
   S.approach();
   let touchZ = null, touchT = 0;
   for (let i = 0; i < 4000; i++) {
-    const af = S.af;
+    const af = S.world().af;
     if (af.active && af.phase === 1) {
       if (mode === 'high') { S.P.y = Math.max(S.P.y, af.y + 160); }
       else {
@@ -157,7 +157,7 @@ const gold = await page.evaluate(() => {
   S.play();
   const seen = [];
   for (let i = 0; i < 3000 && seen.length < 6; i++) {
-    for (const r of S.Rings.list) {
+    for (const r of S.world().Rings.list) {
       if (r.active && r.gold && !seen.some(g => g.n === r.n)) {
         seen.push({ n: r.n, offLine: Math.round(Math.abs(r.x - S.courseX(r.z))),
                     agl: Math.round(r.y - S.groundAt(r.x, r.z)) });
@@ -194,6 +194,27 @@ if (!storage) {
   check('the logbook survives a reload', kept.top === 'ZZZ' && kept.score === 424242 && kept.shown,
     JSON.stringify(kept));
   await page.evaluate(() => { try { window.localStorage.removeItem('skylarkRun.v1'); } catch (e) {} });
+}
+
+// --- the buttons a player actually presses ---
+// Everything above drives the game through window.SKY, which skips the menu
+// entirely. That is how a broken Fly button shipped: startFlow() assigned to an
+// imported binding and threw, and nothing in the suite ever called it. So click
+// the real controls for each craft.
+for (const [pick, craft] of [['#pickPlane', 'plane'], ['#pickHeli', 'heli']]) {
+  await page.goto(url);
+  await page.waitForTimeout(1200);
+  const before = errors.length;
+  await page.locator(pick).click();
+  await page.waitForTimeout(2500);
+  const picked = await page.evaluate(() => window.SKY.craft());
+  await page.locator('#startBtn').click();
+  await page.waitForTimeout(2500);
+  const flying = await page.evaluate(() => window.SKY.state());
+  check('clicking through to fly the ' + craft + ' starts a sector',
+    picked === craft && flying !== 0 && errors.length === before,
+    'craft ' + picked + ', state ' + flying +
+    (errors.length > before ? ', errors: ' + errors.slice(before, before + 2).join(' | ') : ''));
 }
 
 // --- the helicopter: a second craft over a second world ---
@@ -235,7 +256,7 @@ const pad = await page.evaluate(() => {
   S.approach();
   for (let i = 0; i < 3000; i++) {
     const r = S.step(4);
-    if (S.pad && S.pad.active) return { armed: true, dist: Math.round(S.P.dist) };
+    if (S.world().pad && S.world().pad.active) return { armed: true, dist: Math.round(S.P.dist) };
     if (r.state !== 1) return { armed: false, state: r.state };
   }
   return { armed: false, timeout: true };

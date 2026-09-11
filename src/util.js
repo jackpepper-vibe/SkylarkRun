@@ -4,6 +4,7 @@
 // share between the engine, the craft and the worlds. A few need THREE, which
 // is the r128 global build rather than an import.
 /* global THREE */
+import { hctx } from './view.js';
 
 export function hash(n){let x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);}
 export function hash2(x,z){let v=Math.sin(x*127.1+z*311.7)*43758.5453;return v-Math.floor(v);}
@@ -30,12 +31,6 @@ export function shade(hex,amt){
   return "#"+c.getHexString();
 }
 export function midiF(m){return 440*Math.pow(2,(m-69)/12);}
-export function hatBuf(){
-  if(_hatBuf)return _hatBuf;
-  const len=Math.floor(AC.sampleRate*0.05),b=AC.createBuffer(1,len,AC.sampleRate),d=b.getChannelData(0);
-  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len)*(1-i/len);
-  _hatBuf=b;return b;
-}
 export function roundedPoly(pts,r){
   hctx.beginPath();
   for(let i=0;i<pts.length;i++){

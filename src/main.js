@@ -5,11 +5,11 @@
 // here rather than imported.
 /* global THREE */
 import { hash, hash2, mulberry32, clamp, lerp, smooth, vnoise, lineGeo,
-         shade, midiF, hatBuf, roundedPoly, esc, ordinal } from './util.js';
+         shade, midiF, roundedPoly, esc, ordinal } from './util.js';
 import { Save, Net, renderBoard, cleanName, NAME_MAX } from './logbook.js';
 import { S, Game, TO, P, G, dents, popups, popup } from './state.js';
 import { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch,
-         invertPitch, haveTilt, permState } from './input.js';
+         setPermState, invertPitch, haveTilt, permState } from './input.js';
 import { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted } from './audio.js';
 import { DPR, H, W, camera, hctx, renderer, scene } from './view.js';
 import { SUNDIR, sky, sunGlow } from './sky.js';
@@ -93,7 +93,7 @@ function frame(t){
   requestAnimationFrame(frame);
   const dt=Game.simHold?0:(Math.min(0.05,(t-Game.tPrev)/1000)||0.016);Game.tPrev=t;
   if(Game.simHold){
-    Airfield.update(dt,t);
+    if(Craft&&Craft.tickWorld) Craft.tickWorld(dt,t);
     renderFrame(t);
     return;
   }
@@ -146,12 +146,12 @@ async function startFlow(){
   initAudio();
   resumeAudio();
   if(!CAN_TILT){
-    permState="unsupported";
+    setPermState("unsupported");
   }else try{
     if(typeof DeviceOrientationEvent.requestPermission==="function"){
-      permState=await DeviceOrientationEvent.requestPermission();
-    }else{permState="granted";}
-  }catch(e){permState="denied";}
+      setPermState(await DeviceOrientationEvent.requestPermission());
+    }else{setPermState("granted");}
+  }catch(e){setPermState("denied");}
   try{await document.documentElement.requestFullscreen({navigationUI:"hide"});}catch(e){}
   try{if(screen.orientation&&screen.orientation.lock)await screen.orientation.lock("landscape");}catch(e){}
   setTimeout(()=>{
@@ -338,12 +338,9 @@ window.SKY={
   aimAt(x,y){ P.x=x; P.y=y; },
   hold(on){ Game.simHold=!!on; },
   Save,
-  get af(){ return Craft.debug.af; },
-  get Rings(){ return Craft.debug.Rings; },
-  get Fuel(){ return Craft.debug.Fuel; },
-  get Haz(){ return Craft.debug.Haz; },
-  get Terrain(){ return Craft.debug.Terrain; },
-  get pad(){ return Craft.debug.pad; },
+  /** The selected craft's own handles: af and Rings for the plane, pad for
+   *  the helicopter. One accessor beats six getters named after one craft. */
+  world:()=>Craft.debug,
   courseX:z=>Craft.debug.courseX(z),
   groundAt:(x,z)=>Craft.debug.groundAt(x,z),
   drawHUD:t=>Craft.drawCockpit(t),

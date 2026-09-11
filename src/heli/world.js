@@ -14,7 +14,7 @@ import { applyWeather } from '../weather.js';
 import { hash, mulberry32, clamp, lerp } from '../util.js';
 import { S, Game, P, G, popup, popups } from '../state.js';
 import { scene, renderer, camera, W, H } from '../view.js';
-import { chime } from '../audio.js';
+import { chime, thunder } from '../audio.js';
 import { crash, cracks } from '../damage.js';
 import { FOGC, AV, AMBER, DANGER, LANES, STREETS, ROW_SPACING, VIEW,
          SPEED0, SPEED_MAX, SPEED_RAMP, MAX_VX, MAX_VY, MIN_Y, MAX_Y,
@@ -1505,6 +1505,21 @@ function advanceRows(){
   }
 }
 
+// ---------- lightning ----------
+// The strike clock is reassigned, so it lives here rather than being driven
+// from the flight module. boltT is when the sky last lit up; the cockpit fades
+// a flash from it.
+let nextBolt = 0, boltT = -99999;
+function updateLightning(){
+  const now = performance.now();
+  if(now > nextBolt){
+    boltT = now;
+    nextBolt = now + 6000 + Math.random()*9000;
+    setTimeout(thunder, 500 + Math.random()*1600);
+  }
+}
+function lastBolt(){ return boltT; }
+
 // ---------- the world, as the engine sees it ----------
 // resetCity is Rotor Run's resetWorld under a name that says which world it
 // resets. tickCity and rigCity gather the per-frame work its frame loop did
@@ -1559,6 +1574,6 @@ function updateAttract(dt){
   rebaseGround();
 }
 
-export { cranes, cables, drones, rings, fuels, advanceRows, rebaseGround, spawnRow, releaseBuilding, pad, activeB, activatePad, resetCity, nextCitySector, rigCity, tickCity,
+export { updateLightning, lastBolt, cranes, cables, drones, rings, fuels, advanceRows, rebaseGround, spawnRow, releaseBuilding, pad, activeB, activatePad, resetCity, nextCitySector, rigCity, tickCity,
          updateAttract, updateTraffic, updateSideCity, updateScenery, updateCityLife,
          updatePickups, updateHazards, skylines, diceAngle, THEME_NAMES, TODS };

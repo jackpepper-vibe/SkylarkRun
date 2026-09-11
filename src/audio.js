@@ -4,7 +4,10 @@
 // all synthesised through the Web Audio API rather than loaded as files.
 // Everything hangs off one master gain so muting is a single switch.
 /* global THREE */
-import { clamp, midiF, hatBuf } from './util.js';
+import { clamp, midiF } from './util.js';
+// The engine note rides airspeed as a fraction of the envelope. Both craft
+// define SPEED_MAX; the plane's is the reference the mix was tuned against.
+import { SPEED_MAX } from './plane/config.js';
 import { S, Game, P, G } from './state.js';
 
 // ---------- audio: radial engine, slipstream, and a bright little score ----------
@@ -45,7 +48,6 @@ function initAudio(){
     MUSIC.next=AC.currentTime+0.1;MUSIC.step=0;
   }catch(e){}
 }
-let _hatBuf=null;
 
 function audioTick(){
   if(!AC||!engSaw)return;
@@ -198,4 +200,26 @@ function obstacleBeep(){
 function resumeAudio(){ try{ if(AC && AC.state==="suspended") AC.resume(); }catch(e){} }
 async function suspendAudio(){ try{ if(AC && AC.state==="running") await AC.suspend(); }catch(e){} }
 
-export { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted };
+/** A long low rumble for a lightning strike over the city. */
+function thunder(){
+  if(!AC || muted || !noiseBuf) return;
+  const src=AC.createBufferSource(); src.buffer=noiseBuf;
+  const f=AC.createBiquadFilter(); f.type="lowpass"; f.frequency.value=140;
+  const g=AC.createGain();
+  g.gain.setValueAtTime(0.001,AC.currentTime);
+  g.gain.linearRampToValueAtTime(0.30,AC.currentTime+0.05);
+  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+1.8);
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start(); src.stop(AC.currentTime+2);
+}
+
+// One-shot cache for the hi-hat noise buffer.
+let _hatBuf=null;
+function hatBuf(){
+  if(_hatBuf)return _hatBuf;
+  const len=Math.floor(AC.sampleRate*0.05),b=AC.createBuffer(1,len,AC.sampleRate),d=b.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len)*(1-i/len);
+  _hatBuf=b;return b;
+}
+
+export { thunder, obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted };

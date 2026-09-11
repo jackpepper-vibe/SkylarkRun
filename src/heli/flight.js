@@ -14,7 +14,7 @@ import { gDrops, updateRain } from '../weather.js';
 import { crash, levelClear, startDying } from '../damage.js';
 import { LANES, STREETS, ROW_SPACING, VIEW, SPEED0, SPEED_MAX, SPEED_RAMP,
          MAX_VX, MAX_VY, MIN_Y, MAX_Y, LAT_CLAMP, PR } from './config.js';
-import { advanceRows, rebaseGround, pad, activeB, activatePad, resetCity, nextCitySector, rigCity, tickCity,
+import { updateLightning, advanceRows, rebaseGround, pad, activeB, activatePad, resetCity, nextCitySector, rigCity, tickCity,
          updateAttract, updateTraffic, updateSideCity, updateScenery,
          updateCityLife, updatePickups, updateHazards, diceAngle } from './world.js';
 import { drawHeliHUD } from './hud.js';
@@ -55,11 +55,7 @@ function update(dt){
       Game.gustEnd=nowW+2200;
       Game.nextGust=nowW+4500+Math.random()*4000;
     }
-    if(nowW>nextBolt){
-      boltT=nowW;
-      nextBolt=nowW+6000+Math.random()*9000;
-      setTimeout(thunder,500+Math.random()*1600);
-    }
+    updateLightning();
     if(performance.now()>Game.gustEnd)Game.windTarget=0;
   }else Game.windTarget=0;
   Game.wind+=(Game.windTarget-Game.wind)*Math.min(1,dt*2);

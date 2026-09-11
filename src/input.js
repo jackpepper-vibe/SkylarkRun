@@ -34,6 +34,10 @@ try{
   const saved=localStorage.getItem(INVERT_KEY);
   if(saved!==null)invertPitch=saved==="1";
 }catch(e){/* storage blocked — fall back to the default */}
+/** The permission answer is recorded here rather than assigned from outside:
+ *  an imported binding is read-only, and writing to one throws. */
+function setPermState(v){ permState = v; }
+
 function setInvertPitch(on){
   invertPitch=!!on;
   try{localStorage.setItem(INVERT_KEY,invertPitch?"1":"0");}catch(e){}
@@ -92,5 +96,5 @@ function readInput(){
 
 // invertPitch is exported for reading only: importers see the live value,
 // and changes go through setInvertPitch so the choice is persisted.
-export { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch,
+export { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch, setPermState,
          invertPitch, haveTilt, permState };
