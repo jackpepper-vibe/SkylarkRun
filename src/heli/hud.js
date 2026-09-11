@@ -267,8 +267,10 @@ function drawHUD(bank,t){
   }
   // tilt status, tucked into the top frame left of the console
   hctx.font=`600 ${Math.max(10,H*0.024)}px ui-monospace,Menlo,Consolas,monospace`;
+  // Only worth saying on a device that could have tilted. On a desktop the
+  // keyboard is the expected control, not a fallback to apologise for.
   if(haveTilt){hctx.fillStyle=AV;hctx.fillText("TILT \u2713",W*0.245,H*0.028);}
-  else{
+  else if(CAN_TILT){
     hctx.fillStyle=AMBER;hctx.textAlign="right";
     hctx.fillText(permState==="denied"?"TILT DENIED \u2014 DRAG":"NO TILT \u2014 DRAG",ocx-10,H*0.028);
     hctx.textAlign="center";
