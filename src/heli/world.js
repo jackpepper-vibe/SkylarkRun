@@ -10,6 +10,7 @@
 // renderer, post, input, audio, the logbook — now come from Skylark's modules,
 // and the mutable scalars it kept as bare bindings live on Game.
 /* global THREE */
+import { SUNDIR, Sun } from '../sun.js';
 import { applyWeather } from '../weather.js';
 import { hash, mulberry32, clamp, lerp } from '../util.js';
 import { S, Game, P, G, popup, popups } from '../state.js';
@@ -851,8 +852,6 @@ const sunGlow=(()=>{
   sp.scale.set(1500,1500,1);
   scene.add(sp); return sp;
 })();
-const SUNDIR=new THREE.Vector3(0.42,0.11,-0.90).normalize();
-
 // ---------- time-of-day: sector cycle dusk -> night -> midnight -> dawn ----------
 const TODS=[
  {name:"DUSK",    fog:0xc46a52, sunC:0xffb37a, sunI:1.5,  hemiS:0x7a5aa0, hemiG:0x2a1a22, hemiI:0.85, exp:1.05, dir:[0.42,0.11,-0.90],  glowC:0xfff0c4, glowO:0.60, ray:0.9,  env:["#2a2050","#e08a52","#1a1422"]},
@@ -890,6 +889,7 @@ function applyTod(lvl){
   hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG); hemiLight.intensity=td.hemiI;
   renderer.toneMappingExposure=td.exp;
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
+  Sun.ray=td.ray;
   sunLight.position.copy(SUNDIR).multiplyScalar(1000);
   sunGlow.material.color.set(td.glowC);
   sunGlow.material.opacity=td.glowO;

@@ -1,11 +1,15 @@
-// Skylark Run — lights, the sky dome and the time of day.
+// Skylark — lights, the sky dome and the time of day.
+//
+// The plane's sky, loaded only with the plane. It adds daylight to the shared
+// scene, so the city must never pull it in.
 //
 // Every sector shifts the sun, so the whole palette — light colour, fog, the
 // dome gradient and the glow around the disc — is driven from one table of
 // times of day rather than set per scene.
 /* global THREE */
-import { scene } from './view.js';
-import { hash } from './util.js';
+import { SUNDIR } from '../sun.js';
+import { scene } from '../view.js';
+import { hash } from '../util.js';
 
 // ---------- lights ----------
 const hemiLight=new THREE.HemisphereLight(0xbcd8ee,0x4a5a34,0.95);
@@ -28,8 +32,6 @@ const TODS=[
  {name:"GOLDEN",   sky:["#2f5f9e","#6f92c4","#dfae82","#ffd8a2"], fog:0xe0c49a, sunC:0xffc884, sunI:1.20,
   hemiS:0xd8bc98, hemiG:0x4a4028, hemiI:0.85, exp:1.06, dir:[-0.72,0.18,-0.67], glowO:0.75, ray:1.10, grass:0.94},
 ];
-const SUNDIR=new THREE.Vector3(0.55,0.42,-0.72).normalize();
-
 // ---------- sky dome ----------
 function makeSkyTexture(tod){
   const td=TODS[tod];
@@ -91,4 +93,4 @@ const sunGlow=(()=>{
   scene.add(sp); return sp;
 })();
 
-export { SUNDIR, TODS, hemiLight, sky, skyTexs, sunGlow, sunLight };
+export { TODS, hemiLight, sky, skyTexs, sunGlow, sunLight };

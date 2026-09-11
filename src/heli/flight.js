@@ -14,7 +14,7 @@ import { gDrops, updateRain } from '../weather.js';
 import { crash, levelClear, startDying } from '../damage.js';
 import { LANES, STREETS, ROW_SPACING, VIEW, SPEED0, SPEED_MAX, SPEED_RAMP,
          MAX_VX, MAX_VY, MIN_Y, MAX_Y, LAT_CLAMP, PR } from './config.js';
-import { updateLightning, advanceRows, rebaseGround, pad, activeB, activatePad, resetCity, nextCitySector, rigCity, tickCity,
+import { THEME_NAMES, updateLightning, advanceRows, rebaseGround, pad, activeB, activatePad, resetCity, nextCitySector, rigCity, tickCity,
          updateAttract, updateTraffic, updateSideCity, updateScenery,
          updateCityLife, updatePickups, updateHazards, diceAngle } from './world.js';
 import { drawHeliHUD } from './hud.js';
@@ -169,6 +169,13 @@ export const Helicopter = {
       camera.rotation.set(P.vy*0.005, 0, -bank);
     }
   },
+
+  /** The city keeps scrolling under her as she falls. */
+  scrollWorld(){ advanceRows(); updateTraffic(0.016); updateScenery(0.016); rebaseGround(); },
+  /** There is no terrain here: the street is the floor. */
+  groundAt(){ return 0; },
+  impact(){ /* the city has its own crash flare in the HUD */ },
+  nextThemeName(){ return THEME_NAMES[(G.lvl)%THEME_NAMES.length]; },
 
   drawCockpit(t){
     // Rotor Run's HUD is handed the bank angle the camera was rigged with.

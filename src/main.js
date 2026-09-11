@@ -12,9 +12,9 @@ import { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch,
          setPermState, invertPitch, haveTilt, permState } from './input.js';
 import { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted } from './audio.js';
 import { DPR, H, W, camera, hctx, renderer, scene } from './view.js';
-import { SUNDIR, sky, sunGlow } from './sky.js';
 import { renderPost, rtScene } from './post.js';
 import { overlays, show, hideAll } from './overlays.js';
+import { Active } from './active.js';
 import { updateDying } from './damage.js';
 "use strict";
 
@@ -36,6 +36,7 @@ async function selectCraft(id){
   const entry = CRAFT[id];
   if(!entry) throw new Error("unknown craft: " + id);
   Craft = await entry.load();
+  Active.craft = Craft;
   // The craft owns its own title card wording.
   const set = (el,html)=>{ const n=document.getElementById(el); if(n) n.innerHTML=html; };
   set("craftName", Craft.name);

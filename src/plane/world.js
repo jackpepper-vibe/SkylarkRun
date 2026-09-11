@@ -8,12 +8,13 @@
 // crash() directly. The two modules import each other, which ES modules allow
 // because neither touches the other at evaluation time — only inside handlers.
 /* global THREE */
+import { SUNDIR, Sun } from '../sun.js';
 import { crash, birdStrike } from '../damage.js';
 import { applyWeather } from '../weather.js';
 import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } from '../util.js';
 import { scene, renderer } from '../view.js';
 import { CANOPY_H, PR, VIEW } from './config.js';
-import { SUNDIR, TODS, hemiLight, sky, skyTexs, sunGlow, sunLight } from '../sky.js';
+import { TODS, hemiLight, sky, skyTexs, sunGlow, sunLight } from './sky.js';
 import { G, Game, P, S, TO, popup } from '../state.js';
 import { chime, radioCall, thud } from '../audio.js';
 
@@ -1339,6 +1340,7 @@ function applyTheme(lvl){
   hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG); hemiLight.intensity=td.hemiI;
   renderer.toneMappingExposure=td.exp;
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
+  Sun.ray=td.ray;
   sunLight.position.copy(SUNDIR).multiplyScalar(1400);
   sunGlow.material.opacity=td.glowO;
   Shadows.sun();

@@ -11,8 +11,9 @@ import { S, Game, TO, P, G, dents, popups, popup } from '../state.js';
 import { readInput } from '../input.js';
 import { chime, crashSound, fuelBeep, obstacleBeep } from '../audio.js';
 import { camera, scene } from '../view.js';
-import { SUNDIR, sky, sunGlow } from '../sky.js';
-import { TODS } from '../sky.js';
+import { sky, sunGlow } from './sky.js';
+import { SUNDIR } from '../sun.js';
+import { TODS } from './sky.js';
 import { Clouds } from '../clouds.js';
 import { WEATHERS, gDrops, updateRain } from '../weather.js';
 import { crash, levelClear, splats, startDying } from '../damage.js';
@@ -375,6 +376,17 @@ export const Plane = {
       r.position.set(P.x*u.fac, u.h*0.30+TH.amp*0.5, P.z-u.dist);
     }
   },
+
+  /** Keep the scenery moving while she is going in. */
+  scrollWorld(){ Terrain.update(); Scatter.update(); Clouds.update(); },
+  groundAt(x,z){ return groundH(x,z); },
+  /** Fireball where she came to rest. */
+  impact(g){
+    burst(new THREE.Vector3(P.x,g+6,P.z-16),0xff8a3a,1.8);
+    burst(new THREE.Vector3(P.x+10,g+9,P.z-24),0xffd08a,1.4);
+    burst(new THREE.Vector3(P.x-11,g+5,P.z-12),0xd2452f,1.4);
+  },
+  nextThemeName(){ return THEMES[G.lvl%THEMES.length].name; },
 
   drawCockpit(t){ drawHUD(t); },
 

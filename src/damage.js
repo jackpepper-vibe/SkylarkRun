@@ -9,9 +9,8 @@
 import { G, Game, P, S, dents, popup } from './state.js';
 import { chime, crashSound, deathSpiral, thud } from './audio.js';
 import { SPEED0 } from './plane/config.js';
-import { Scatter, THEMES, Terrain, burst, groundH } from './plane/world.js';
+import { Active } from './active.js';
 import { H, W } from './view.js';
-import { Clouds } from './clouds.js';
 import { Net, Save, renderBoard } from './logbook.js';
 import { show } from './overlays.js';
 
@@ -58,14 +57,12 @@ function updateDying(dt){
   P.y-=(10+Game.dying.t*30)*dt;
   Game.shake=Math.min(1.3,Game.shake+dt*1.5);
   Game.flash=Math.max(Game.flash,0.12);
-  Terrain.update(); Scatter.update(); Clouds.update();
-  const g=groundH(P.x,P.z);
+  Active.craft.scrollWorld();
+  const g=Active.craft.groundAt(P.x,P.z);
   if(P.y<=g+3){
     P.y=g+3; Game.flash=1; Game.shake=1.5;
     crashSound(); setTimeout(crashSound,150);
-    burst(new THREE.Vector3(P.x,g+6,P.z-16),0xff8a3a,1.8);
-    burst(new THREE.Vector3(P.x+10,g+9,P.z-24),0xffd08a,1.4);
-    burst(new THREE.Vector3(P.x-11,g+5,P.z-12),0xd2452f,1.4);
+    Active.craft.impact(g);
     endGame(Game.dying.title,Game.dying.sub);
   }
 }
@@ -103,7 +100,7 @@ function levelClear(){
   document.getElementById("bFuel").textContent="+"+bf.toLocaleString();
   document.getElementById("bHull").textContent="+"+bh.toLocaleString();
   document.getElementById("clearScore").textContent=G.score.toLocaleString();
-  document.getElementById("nextTheme").textContent=THEMES[G.lvl%THEMES.length].name;
+  document.getElementById("nextTheme").textContent=Active.craft.nextThemeName();
   [660,880,1100].forEach((f,i)=>setTimeout(()=>chime(f),i*140));
   show("clearOverlay");
 }

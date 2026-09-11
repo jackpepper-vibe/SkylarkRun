@@ -7,7 +7,7 @@
 /* global THREE */
 import { DPR, H, W, camera, renderer, scene } from './view.js';
 import { Game, P } from './state.js';
-import { SUNDIR, TODS } from './sky.js';
+import { SUNDIR, Sun } from './sun.js';
 
 // ---------- post-processing: hand-rolled bloom + god rays (core three only) ----------
 const postCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
@@ -101,7 +101,7 @@ function renderPost(){
   if(_sunV.z<1){
     su=_sunV.x*0.5+0.5; sv=_sunV.y*0.5+0.5;
     const d=Math.hypot(su-0.5,sv-0.5);
-    sI=Math.max(0,1-d*1.5)*(Game.weather===2?0.2:1)*TODS[Game.curTod].ray;
+    sI=Math.max(0,1-d*1.5)*(Game.weather===2?0.2:1)*Sun.ray;
   }
   raysMat.uniforms.tex.value=rtB.texture;
   raysMat.uniforms.sunUv.value.set(su,sv);
