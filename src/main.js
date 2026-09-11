@@ -10,6 +10,9 @@ import { Save, Net, renderBoard, cleanName, NAME_MAX } from './logbook.js';
 import { LAT_CLAMP, VIEW, SPEED0, SPEED_MAX, SPEED_RAMP, MAX_VX, MAX_VY,
          MAX_Y, PR, MIN_CLEAR, CANOPY_H } from './config.js';
 import { S, Game, TO, P, G, dents, popups, popup } from './state.js';
+import { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch,
+         invertPitch, haveTilt, permState } from './input.js';
+import { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted } from './audio.js';
 "use strict";
 /* ============================================================
    SKYLARK RUN — open-cockpit monoplane air racing in Three.js.
@@ -1544,7 +1547,7 @@ function applyWeather(lvl){
   for(let i=0;i<RAIN_N;i++) resetDrop(arr,i,true);
   rain.geometry.attributes.position.needsUpdate=true;
   rain.visible=weather===2;
-  if(rainGain) rainGain.gain.value=weather===2?0.09:0;
+  setRain(weather===2);
   scene.fog.far=weather===2?2400:(weather===3?2900:3400);
   scene.fog.near=weather===2?500:800;
   for(const c of Clouds.list) c.sp.material.opacity=(0.55+Math.random()*0.4)*weatherCloudAlpha();
@@ -1678,234 +1681,6 @@ function renderPost(){
   quadPass(compMat,null);
 }
 
-// ---------- input (tilt + touch + keys) ----------
-
-// Whether this device can actually tilt. Desktop browsers still define
-// DeviceOrientationEvent even though no sensor will ever fire it, so asking
-// whether the constructor exists is not enough — a laptop would be offered an
-// "Enable tilt" button that could never do anything. Judge it on the kind of
-// input the device really has instead.
-// navigator.maxTouchPoints is no help here — desktop Chrome reports 10 — and
-// neither is `ontouchstart`. A coarse primary pointer is the signal that
-// actually separates a phone or tablet from a machine with a mouse, including
-// touchscreen laptops, which have a fine pointer and no gyroscope.
-const CAN_TILT=(function(){
-  if(typeof DeviceOrientationEvent==="undefined")return false;
-  if(!window.matchMedia)return false;
-  return window.matchMedia("(pointer: coarse)").matches;
-})();
-
-// Pitch on the keyboard follows the joystick convention by default: pushing
-// forward puts the nose down. Anyone who prefers the arrows to move the
-// aeroplane the way they point can switch it back, and the choice sticks.
-const INVERT_KEY="skylark-invert-pitch";
-let invertPitch=true;
-try{
-  const saved=localStorage.getItem(INVERT_KEY);
-  if(saved!==null)invertPitch=saved==="1";
-}catch(e){/* storage blocked — fall back to the default */}
-function setInvertPitch(on){
-  invertPitch=!!on;
-  try{localStorage.setItem(INVERT_KEY,invertPitch?"1":"0");}catch(e){}
-}
-
-let rawBeta=0,rawGamma=0,haveTilt=false,calB=0,calG=0,permState="unknown";
-window.addEventListener("deviceorientation",e=>{
-  if(e.beta===null)return;
-  rawBeta=e.beta;rawGamma=e.gamma;haveTilt=true;
-});
-function calibrate(){calB=rawBeta;calG=rawGamma;}
-function screenAngle(){
-  if(screen.orientation&&typeof screen.orientation.angle==="number")return screen.orientation.angle;
-  return(typeof window.orientation==="number")?window.orientation:0;
-}
-const keys={};
-window.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
-window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
-let touchActive=false,tSX=0,tSY=0,tDX=0,tDY=0;
-window.addEventListener("touchstart",e=>{
-  if(Game.state!==S.PLAY&&Game.state!==S.ROLLOUT&&Game.state!==S.TAKEOFF)return;
-  touchActive=true;tSX=e.touches[0].clientX;tSY=e.touches[0].clientY;tDX=0;tDY=0;
-},{passive:true});
-window.addEventListener("touchmove",e=>{
-  if(!touchActive)return;
-  tDX=e.touches[0].clientX-tSX;tDY=e.touches[0].clientY-tSY;
-},{passive:true});
-window.addEventListener("touchend",()=>{touchActive=false;tDX=0;tDY=0;});
-window.addEventListener("touchcancel",()=>{touchActive=false;tDX=0;tDY=0;});
-function readInput(){
-  let steer=0,pitch=0;
-  if(haveTilt){
-    const b=rawBeta-calB,g=rawGamma-calG,a=screenAngle();
-    if(a===90){steer=b;pitch=-g;}
-    else if(a===-90||a===270){steer=-b;pitch=g;}
-    else{steer=g;pitch=-b;}
-    const MAXT=20;
-    steer=clamp(steer/MAXT,-1,1);
-    pitch=clamp(pitch/MAXT,-1,1);
-    const DZ=0.06;
-    steer=Math.abs(steer)<DZ?0:steer;pitch=Math.abs(pitch)<DZ?0:pitch;
-  }
-  if(keys["arrowleft"]||keys["a"])steer=-1;
-  if(keys["arrowright"]||keys["d"])steer=1;
-  // Positive pitch raises the nose. Under joystick pitch, pushing the stick
-  // forward (up / W) lowers it instead, and easing back (down / S) raises it —
-  // which also keeps "ease back at Vr" literally true on the takeoff roll.
-  if(keys["arrowup"]||keys["w"])pitch=invertPitch?-1:1;
-  if(keys["arrowdown"]||keys["s"])pitch=invertPitch?1:-1;
-  if(touchActive){
-    steer=clamp(tDX/90,-1,1);
-    pitch=clamp(-tDY/70,-1,1);
-  }
-  return{steer,pitch};
-}
-
-// ---------- audio: radial engine, slipstream, and a bright little score ----------
-let AC=null,master=null,muted=false,noiseBuf=null;
-let engSaw=null,engLfo=null,engGain=null,windGain=null,windFilter=null,rainGain=null,musicGain=null;
-const MUSIC={next:0,step:0};
-
-function initAudio(){
-  if(AC)return;
-  try{
-    AC=new(window.AudioContext||window.webkitAudioContext)();
-    master=AC.createGain();master.gain.value=0.5;master.connect(AC.destination);
-    const len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),ch=buf.getChannelData(0);
-    for(let i=0;i<len;i++)ch[i]=Math.random()*2-1;
-    noiseBuf=buf;
-    // engine: sawtooth core chopped by the cylinder firing order
-    engSaw=AC.createOscillator();engSaw.type="sawtooth";engSaw.frequency.value=105;
-    const chop=AC.createGain();chop.gain.value=0.35;
-    engLfo=AC.createOscillator();engLfo.type="square";engLfo.frequency.value=38;
-    const lfoG=AC.createGain();lfoG.gain.value=0.30;
-    engLfo.connect(lfoG);lfoG.connect(chop.gain);
-    const engLp=AC.createBiquadFilter();engLp.type="lowpass";engLp.frequency.value=900;
-    engGain=AC.createGain();engGain.gain.value=0.10;
-    engSaw.connect(chop);chop.connect(engLp);engLp.connect(engGain);engGain.connect(master);
-    // slipstream past an open cockpit
-    const windSrc=AC.createBufferSource();windSrc.buffer=buf;windSrc.loop=true;
-    windFilter=AC.createBiquadFilter();windFilter.type="bandpass";
-    windFilter.frequency.value=700;windFilter.Q.value=0.6;
-    windGain=AC.createGain();windGain.gain.value=0.05;
-    windSrc.connect(windFilter);windFilter.connect(windGain);windGain.connect(master);
-    // rain
-    const rainSrc=AC.createBufferSource();rainSrc.buffer=buf;rainSrc.loop=true;
-    const hp=AC.createBiquadFilter();hp.type="highpass";hp.frequency.value=3600;
-    rainGain=AC.createGain();rainGain.gain.value=0;
-    rainSrc.connect(hp);hp.connect(rainGain);rainGain.connect(master);
-    musicGain=AC.createGain();musicGain.gain.value=0.15;musicGain.connect(master);
-    engSaw.start();engLfo.start();windSrc.start();rainSrc.start();
-    MUSIC.next=AC.currentTime+0.1;MUSIC.step=0;
-  }catch(e){}
-}
-let _hatBuf=null;
-
-function audioTick(){
-  if(!AC||!engSaw)return;
-  const t=AC.currentTime;
-  const thr=Game.state===S.ROLLOUT?0.35:1;
-  engSaw.frequency.setTargetAtTime(72+P.speed*0.62,t,0.20);
-  engLfo.frequency.setTargetAtTime(26+P.speed*0.26,t,0.25);
-  engGain.gain.setTargetAtTime(0.10*thr,t,0.3);
-  windFilter.frequency.setTargetAtTime(420+P.speed*5.5,t,0.3);
-  windGain.gain.setTargetAtTime(0.018+P.speed/SPEED_MAX*0.055,t,0.3);
-  // generative score: I - V - vi - IV in D major, plucked
-  const spb=60/104, s16=spb/4;
-  const CH=[[38,50,54,57],[45,57,61,64],[42,54,57,61],[43,55,59,62]];
-  if(MUSIC.next<t-0.5)MUSIC.next=t+0.05;
-  while(MUSIC.next<t+0.25){
-    const st=MUSIC.step, when=MUSIC.next, ch2=CH[Math.floor(st/16)%4];
-    if(st%4===0){                                     // bass on the beat
-      const o=AC.createOscillator(),g=AC.createGain();
-      o.type="triangle";o.frequency.value=midiF(ch2[0]);
-      g.gain.setValueAtTime(0.06,when);
-      g.gain.exponentialRampToValueAtTime(0.001,when+0.30);
-      o.connect(g);g.connect(musicGain);o.start(when);o.stop(when+0.32);
-    }
-    if(st%2===1){                                     // arpeggio pluck
-      const note=ch2[1+((st>>1)%3)];
-      const o=AC.createOscillator(),g=AC.createGain(),f=AC.createBiquadFilter();
-      o.type="triangle";o.frequency.value=midiF(note+12);
-      f.type="lowpass";f.frequency.setValueAtTime(3200,when);
-      f.frequency.exponentialRampToValueAtTime(700,when+0.22);
-      g.gain.setValueAtTime(0.035,when);
-      g.gain.exponentialRampToValueAtTime(0.001,when+0.26);
-      o.connect(f);f.connect(g);g.connect(musicGain);o.start(when);o.stop(when+0.28);
-    }
-    if(st%8===4){
-      const b=AC.createBufferSource();b.buffer=hatBuf();
-      const g=AC.createGain();g.gain.value=0.035;
-      b.connect(g);g.connect(musicGain);b.start(when);
-    }
-    if(st%32===0){                                    // warm pad underneath
-      for(const m of ch2.slice(1)){
-        const o=AC.createOscillator(),g=AC.createGain(),f=AC.createBiquadFilter();
-        o.type="sawtooth";o.frequency.value=midiF(m);o.detune.value=(Math.random()-0.5)*12;
-        f.type="lowpass";f.frequency.value=1100;
-        g.gain.setValueAtTime(0.0001,when);
-        g.gain.linearRampToValueAtTime(0.016,when+0.6);
-        g.gain.setValueAtTime(0.016,when+spb*7);
-        g.gain.linearRampToValueAtTime(0.0001,when+spb*8);
-        o.connect(f);f.connect(g);g.connect(musicGain);
-        o.start(when);o.stop(when+spb*8.1);
-      }
-    }
-    MUSIC.next+=s16;MUSIC.step++;
-  }
-}
-function chime(freq){
-  if(!AC||muted)return;
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type="sine";o.frequency.setValueAtTime(freq,AC.currentTime);
-  o.frequency.exponentialRampToValueAtTime(freq*1.5,AC.currentTime+0.09);
-  g.gain.setValueAtTime(0.24,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.32);
-  o.connect(g);g.connect(master);o.start();o.stop(AC.currentTime+0.34);
-}
-function thud(){
-  if(!AC||muted)return;
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type="sine";o.frequency.setValueAtTime(190,AC.currentTime);
-  o.frequency.exponentialRampToValueAtTime(70,AC.currentTime+0.18);
-  g.gain.setValueAtTime(0.16,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.22);
-  o.connect(g);g.connect(master);o.start();o.stop(AC.currentTime+0.24);
-}
-function whoosh(){
-  if(!AC||muted)return;
-  const s=AC.createBufferSource();s.buffer=noiseBuf;
-  const f=AC.createBiquadFilter();f.type="bandpass";f.Q.value=2;
-  f.frequency.setValueAtTime(320,AC.currentTime);
-  f.frequency.exponentialRampToValueAtTime(1500,AC.currentTime+0.22);
-  const g=AC.createGain();
-  g.gain.setValueAtTime(0.14,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.3);
-  s.connect(f);f.connect(g);g.connect(master);s.start();s.stop(AC.currentTime+0.32);
-}
-function crashSound(){
-  if(!AC||muted)return;
-  const len=AC.sampleRate*0.45,buf=AC.createBuffer(1,len,AC.sampleRate),ch=buf.getChannelData(0);
-  for(let i=0;i<len;i++)ch[i]=(Math.random()*2-1)*(1-i/len);
-  const s=AC.createBufferSource();s.buffer=buf;
-  const f=AC.createBiquadFilter();f.type="lowpass";f.frequency.value=1400;
-  const g=AC.createGain();g.gain.value=0.85;
-  s.connect(f);f.connect(g);g.connect(master);s.start();
-}
-function radioCall(){                                  // squelch blip on the approach call
-  if(!AC||muted)return;
-  const s=AC.createBufferSource();s.buffer=noiseBuf;
-  const f=AC.createBiquadFilter();f.type="bandpass";f.frequency.value=1800;f.Q.value=6;
-  const g=AC.createGain();
-  g.gain.setValueAtTime(0.10,AC.currentTime);
-  g.gain.setValueAtTime(0.10,AC.currentTime+0.10);
-  g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.18);
-  s.connect(f);f.connect(g);g.connect(master);s.start();s.stop(AC.currentTime+0.2);
-}
-function setMuted(m){
-  muted=m;if(master)master.gain.value=m?0:0.5;
-  document.getElementById("muteBtn").innerHTML=m?"&#128263;":"&#128266;";
-}
-
 // ---------- damage, death and the end of a run ----------
 function crash(reason){
   if(P.invuln>0||Game.state===S.DYING) return;
@@ -1934,15 +1709,7 @@ function startDying(title,sub){
   if(Game.state===S.DYING)return;
   Game.state=S.DYING;
   Game.dying={t:0,roll:Math.random()<0.5?0:Math.PI,title,sub};
-  if(AC&&!muted){
-    const o=AC.createOscillator(),g=AC.createGain();
-    o.type="sawtooth";
-    o.frequency.setValueAtTime(760,AC.currentTime);
-    o.frequency.exponentialRampToValueAtTime(120,AC.currentTime+2.4);
-    g.gain.value=0.07;
-    o.connect(g);g.connect(master);o.start();o.stop(AC.currentTime+2.5);
-  }
-  if(engGain) engGain.gain.setTargetAtTime(0.02,AC?AC.currentTime:0,0.6);
+  deathSpiral();
 }
 function updateDying(dt){
   Game.dying.t+=dt; Game.dying.roll+=dt*(1.5+Game.dying.t*0.6);
@@ -2144,13 +1911,8 @@ function update(dt,t){
   // fuel is the clock you fly against
   G.fuel-=(1.35+0.14*(G.lvl-1))*dt;
   if(G.fuel<=0){G.fuel=0;startDying("Dead <span>stick</span>","tanks dry — engine out");return;}
-  if(G.fuel<20&&AC&&!muted&&performance.now()-Game.lastFuelBeep>1200){
-    Game.lastFuelBeep=performance.now();
-    const o=AC.createOscillator(),g2=AC.createGain();
-    o.type="square";o.frequency.value=680;
-    g2.gain.setValueAtTime(0.05,AC.currentTime);
-    g2.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.15);
-    o.connect(g2);g2.connect(master);o.start();o.stop(AC.currentTime+0.16);
+  if(G.fuel<20&&performance.now()-Game.lastFuelBeep>1200){
+    if(fuelBeep()) Game.lastFuelBeep=performance.now();
   }
 
   // scoring: distance trickle plus a bonus for hedge-hopping
@@ -2216,13 +1978,8 @@ function update(dt,t){
       if(clearanceH(P.x,P.z-d)+34>P.y){ Game.warnObst=true; break; }
     }
   }
-  if(Game.warnObst&&AC&&!muted&&performance.now()-Game.lastBeep>460){
-    Game.lastBeep=performance.now();
-    const o=AC.createOscillator(),g=AC.createGain();
-    o.type="square";o.frequency.value=1180;
-    g.gain.setValueAtTime(0.06,AC.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+0.09);
-    o.connect(g);g.connect(master);o.start();o.stop(AC.currentTime+0.1);
+  if(Game.warnObst&&performance.now()-Game.lastBeep>460){
+    if(obstacleBeep()) Game.lastBeep=performance.now();
   }
 }
 
@@ -3117,7 +2874,7 @@ window.addEventListener("orientationchange",checkOrient);
 
 async function startFlow(){
   initAudio();
-  if(AC&&AC.state==="suspended")AC.resume();
+  resumeAudio();
   if(!CAN_TILT){
     permState="unsupported";
   }else try{
@@ -3210,7 +2967,7 @@ async function exitGame(){
   stopLoop();
   Game.state=S.MENU; Game.attractOn=false; Game.readyT=0;
   setMuted(true);
-  try{ if(AC&&AC.state==="running") await AC.suspend(); }catch(e){}
+  await suspendAudio();
   try{ if(document.fullscreenElement&&document.exitFullscreen) await document.exitFullscreen(); }catch(e){}
   try{ if(screen.orientation&&screen.orientation.unlock) screen.orientation.unlock(); }catch(e){}
   document.getElementById("uiBtns").style.display="none";
@@ -3231,7 +2988,7 @@ async function exitGame(){
 document.getElementById("exitBtn").addEventListener("click",exitGame);
 document.getElementById("backBtn").addEventListener("click",()=>{
   setMuted(false);
-  try{ if(AC&&AC.state==="suspended") AC.resume(); }catch(e){}
+  resumeAudio();
   startLoop();
   resetWorld();
   popups.length=0;
