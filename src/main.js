@@ -7,6 +7,9 @@
 import { hash, hash2, mulberry32, clamp, lerp, smooth, vnoise, lineGeo,
          shade, midiF, hatBuf, roundedPoly, esc, ordinal } from './util.js';
 import { Save, Net, renderBoard, cleanName, NAME_MAX } from './logbook.js';
+import { LAT_CLAMP, VIEW, SPEED0, SPEED_MAX, SPEED_RAMP, MAX_VX, MAX_VY,
+         MAX_Y, PR, MIN_CLEAR, CANOPY_H } from './config.js';
+import { S, Game, TO, P, G, dents, popups, popup } from './state.js';
 "use strict";
 /* ============================================================
    SKYLARK RUN — open-cockpit monoplane air racing in Three.js.
@@ -24,31 +27,6 @@ import { Save, Net, renderBoard, cleanName, NAME_MAX } from './logbook.js';
 const CREAM="#fbf4e2", BRASS="#d9a441", INK="#241c12",
       RED="#d2452f", GREENL="#5fbf74", SKYC="#9fd2f2";
 
-// ---------- flight envelope ----------
-const LAT_CLAMP=560;              // how far off the course line you may wander
-const VIEW=2700;                  // spawn horizon ahead of the aircraft
-const SPEED0=62, SPEED_MAX=136, SPEED_RAMP=0.5;
-const MAX_VX=96, MAX_VY=58;
-const MAX_Y=330;                  // cloud base — climb past it and you are blind
-const PR=8;                       // aircraft collision radius
-const MIN_CLEAR=7;                // metres of air you need under the wheels
-const CANOPY_H=17;                // treetop height inside woodland
-
-// ---------- state ----------
-// af.phase: 0 idle · 1 approach · 2 rollout · 3 approach over · 4 take-off roll · 5 climb-out
-const S={MENU:0,PLAY:1,PAUSE:2,OVER:3,CLEAR:4,DYING:5,ROLLOUT:6,TAKEOFF:7};
-const TO={vr:50,vrT:0,rotT:0,lifted:false};  // take-off: rotation speed, then the rotation
-let state=S.MENU, shake=0, flash=0, whiteout=0, tPrev=0;
-let dying={t:0,roll:0,title:"",sub:""};
-let scarfPhase=0;
-let readyT=0;                     // 3-2-1 hold before the controls go live
-let warnObst=false, lastBeep=0, lastFuelBeep=0;
-const dents=[];                   // cowling damage accumulated over the run
-const G={score:0,combo:0,bestCombo:0,fuel:100,lvl:1,levelEnd:5400,
-         rings:0,ringsHit:0,gold:0,goldHit:0,landLabel:""};
-const popups=[];
-function popup(txt){ popups.push({txt,t0:performance.now()}); if(popups.length>5)popups.shift(); }
-const P={x:0,y:120,z:0,pz:0,vx:0,vy:0,speed:SPEED0,lives:3,invuln:0,dist:0,roll:0};
 // ---------- canvases / three ----------
 const glc=document.getElementById("gl"), hudc=document.getElementById("hud");
 const hctx=hudc.getContext("2d");
@@ -105,7 +83,6 @@ const TODS=[
  {name:"GOLDEN",   sky:["#2f5f9e","#6f92c4","#dfae82","#ffd8a2"], fog:0xe0c49a, sunC:0xffc884, sunI:1.20,
   hemiS:0xd8bc98, hemiG:0x4a4028, hemiI:0.85, exp:1.06, dir:[-0.72,0.18,-0.67], glowO:0.75, ray:1.10, grass:0.94},
 ];
-let curTod=0;
 const SUNDIR=new THREE.Vector3(0.55,0.42,-0.72).normalize();
 
 // ---------- sky dome ----------
@@ -264,7 +241,7 @@ const THEMES=[
   {name:"LAKELAND", amp:96,  f:1.20, ridge:1.10, water:-14, wood:0.58},
   {name:"DOWNLAND", amp:64,  f:0.92, ridge:0.94, water:-46, wood:0.68},
 ];
-let curTheme=0, TH=THEMES[0];
+let TH=THEMES[0];
 
 // ---------- terrain height field ----------
 // One pure function drives geometry, scatter placement and collision, so
@@ -368,7 +345,7 @@ const Terrain={
       const k=clamp((h-TH.amp*1.02)/(TH.amp*0.5),0,1)*0.85;
       c=[lerp(c[0],0.92,k),lerp(c[1],0.94,k),lerp(c[2],0.97,k)];
     }
-    const g=TODS[curTod].grass, n=0.93+hash2(Math.floor(x/29),Math.floor(z/29))*0.14;
+    const g=TODS[Game.curTod].grass, n=0.93+hash2(Math.floor(x/29),Math.floor(z/29))*0.14;
     // deepen and saturate: ACES plus the bloom pass lifts everything a stop
     const SAT=1.42, GAIN=0.80;
     let r0=c[0]*g*n, g0=c[1]*g*n, b0=c[2]*g*n;
@@ -510,7 +487,7 @@ const Shadows={
   update(){
     const m=this.plane;
     if(!m) return;
-    const flying=(state===S.PLAY||state===S.TAKEOFF||state===S.ROLLOUT||state===S.DYING);
+    const flying=(Game.state===S.PLAY||Game.state===S.TAKEOFF||Game.state===S.ROLLOUT||Game.state===S.DYING);
     const gh=onField(P.x,P.z)?af.y:groundH(P.x,P.z);
     const agl=P.y-gh;
     if(!flying||agl>220||agl<-2){ m.visible=false; return; }
@@ -1317,7 +1294,7 @@ const Haz={
         birdStrike();
       }
     }
-    warnObst=warn;
+    Game.warnObst=warn;
   }
 };
 
@@ -1575,11 +1552,11 @@ function applyWeather(lvl){
 
 // ---------- sector setup ----------
 function applyTheme(lvl){
-  curTheme=(lvl-1)%THEMES.length;
-  TH=THEMES[curTheme];
-  curTod=(lvl-1)%TODS.length;
-  const td=TODS[curTod];
-  sky.material.map=skyTexs[curTod]; sky.material.needsUpdate=true;
+  Game.curTheme=(lvl-1)%THEMES.length;
+  TH=THEMES[Game.curTheme];
+  Game.curTod=(lvl-1)%TODS.length;
+  const td=TODS[Game.curTod];
+  sky.material.map=skyTexs[Game.curTod]; sky.material.needsUpdate=true;
   scene.fog.color.set(td.fog);
   sunLight.color.set(td.sunC); sunLight.intensity=td.sunI;
   hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG); hemiLight.intensity=td.hemiI;
@@ -1592,7 +1569,6 @@ function applyTheme(lvl){
 }
 
 // ---------- post-processing: hand-rolled bloom + god rays (core three only) ----------
-let postOn=true;
 const postCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
 const postScene=new THREE.Scene();
 const postQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),null);
@@ -1684,7 +1660,7 @@ function renderPost(){
   if(_sunV.z<1){
     su=_sunV.x*0.5+0.5; sv=_sunV.y*0.5+0.5;
     const d=Math.hypot(su-0.5,sv-0.5);
-    sI=Math.max(0,1-d*1.5)*(weather===2?0.2:1)*TODS[curTod].ray;
+    sI=Math.max(0,1-d*1.5)*(weather===2?0.2:1)*TODS[Game.curTod].ray;
   }
   raysMat.uniforms.tex.value=rtB.texture;
   raysMat.uniforms.sunUv.value.set(su,sv);
@@ -1748,7 +1724,7 @@ window.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
 window.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 let touchActive=false,tSX=0,tSY=0,tDX=0,tDY=0;
 window.addEventListener("touchstart",e=>{
-  if(state!==S.PLAY&&state!==S.ROLLOUT&&state!==S.TAKEOFF)return;
+  if(Game.state!==S.PLAY&&Game.state!==S.ROLLOUT&&Game.state!==S.TAKEOFF)return;
   touchActive=true;tSX=e.touches[0].clientX;tSY=e.touches[0].clientY;tDX=0;tDY=0;
 },{passive:true});
 window.addEventListener("touchmove",e=>{
@@ -1827,7 +1803,7 @@ let _hatBuf=null;
 function audioTick(){
   if(!AC||!engSaw)return;
   const t=AC.currentTime;
-  const thr=state===S.ROLLOUT?0.35:1;
+  const thr=Game.state===S.ROLLOUT?0.35:1;
   engSaw.frequency.setTargetAtTime(72+P.speed*0.62,t,0.20);
   engLfo.frequency.setTargetAtTime(26+P.speed*0.26,t,0.25);
   engGain.gain.setTargetAtTime(0.10*thr,t,0.3);
@@ -1932,8 +1908,8 @@ function setMuted(m){
 
 // ---------- damage, death and the end of a run ----------
 function crash(reason){
-  if(P.invuln>0||state===S.DYING) return;
-  P.lives--; P.invuln=2.4; shake=1; flash=1; crashSound();
+  if(P.invuln>0||Game.state===S.DYING) return;
+  P.lives--; P.invuln=2.4; Game.shake=1; Game.flash=1; crashSound();
   if(navigator.vibrate)navigator.vibrate(180);
   P.speed=Math.max(SPEED0*0.75,P.speed*0.45);
   G.combo=0;
@@ -1943,8 +1919,8 @@ function crash(reason){
   if(P.lives<=0) startDying("Down in the <span>fields</span>","airframe written off");
 }
 function birdStrike(){
-  if(P.invuln>0||state===S.DYING) return;
-  shake=Math.max(shake,0.75); flash=Math.max(flash,0.4);
+  if(P.invuln>0||Game.state===S.DYING) return;
+  Game.shake=Math.max(Game.shake,0.75); Game.flash=Math.max(Game.flash,0.4);
   P.speed=Math.max(SPEED0*0.8,P.speed-16);
   G.combo=0;
   splats.push({x:W*(0.30+Math.random()*0.40),y:H*(0.44+Math.random()*0.16),
@@ -1955,9 +1931,9 @@ function birdStrike(){
 }
 const splats=[];
 function startDying(title,sub){
-  if(state===S.DYING)return;
-  state=S.DYING;
-  dying={t:0,roll:Math.random()<0.5?0:Math.PI,title,sub};
+  if(Game.state===S.DYING)return;
+  Game.state=S.DYING;
+  Game.dying={t:0,roll:Math.random()<0.5?0:Math.PI,title,sub};
   if(AC&&!muted){
     const o=AC.createOscillator(),g=AC.createGain();
     o.type="sawtooth";
@@ -1969,25 +1945,25 @@ function startDying(title,sub){
   if(engGain) engGain.gain.setTargetAtTime(0.02,AC?AC.currentTime:0,0.6);
 }
 function updateDying(dt){
-  dying.t+=dt; dying.roll+=dt*(1.5+dying.t*0.6);
+  Game.dying.t+=dt; Game.dying.roll+=dt*(1.5+Game.dying.t*0.6);
   P.speed=Math.max(22,P.speed-16*dt);
   P.z-=P.speed*dt;
-  P.y-=(10+dying.t*30)*dt;
-  shake=Math.min(1.3,shake+dt*1.5);
-  flash=Math.max(flash,0.12);
+  P.y-=(10+Game.dying.t*30)*dt;
+  Game.shake=Math.min(1.3,Game.shake+dt*1.5);
+  Game.flash=Math.max(Game.flash,0.12);
   Terrain.update(); Scatter.update(); Clouds.update();
   const g=groundH(P.x,P.z);
   if(P.y<=g+3){
-    P.y=g+3; flash=1; shake=1.5;
+    P.y=g+3; Game.flash=1; Game.shake=1.5;
     crashSound(); setTimeout(crashSound,150);
     burst(new THREE.Vector3(P.x,g+6,P.z-16),0xff8a3a,1.8);
     burst(new THREE.Vector3(P.x+10,g+9,P.z-24),0xffd08a,1.4);
     burst(new THREE.Vector3(P.x-11,g+5,P.z-12),0xd2452f,1.4);
-    endGame(dying.title,dying.sub);
+    endGame(Game.dying.title,Game.dying.sub);
   }
 }
 function endGame(title,sub){
-  state=S.OVER;
+  Game.state=S.OVER;
   G.score=Math.floor(G.score);
   const wasBest=G.score>Save.data.bestScore;
   Save.noteRun(G,P);
@@ -2009,7 +1985,7 @@ function endGame(title,sub){
 }
 
 function levelClear(){
-  state=S.CLEAR;
+  Game.state=S.CLEAR;
   const rb=G.ringsHit*40;
   const bf=Math.round(G.fuel*12), bh=P.lives*300;
   G.score=Math.floor(G.score+rb+bf+bh);
@@ -2046,7 +2022,7 @@ function touchdown(){
   burst(new THREE.Vector3(P.x-6,af.y+1,P.z-4),0xdcd2c0,1.1);
   burst(new THREE.Vector3(P.x+6,af.y+1,P.z-4),0xdcd2c0,1.1);
   af.phase=2; af.rollT=0;
-  state=S.ROLLOUT;
+  Game.state=S.ROLLOUT;
   P.y=af.y+2.4; P.vy=0;
 }
 function updateRollout(dt){
@@ -2061,17 +2037,17 @@ function updateRollout(dt){
   P.y=af.y+2.4;
   P.roll*=Math.exp(-5*dt);
   af.rollT+=dt;
-  shake=Math.max(0,shake-dt*2.2)+ (P.speed>10?0.010:0);   // rumble of the grass strip
-  flash=Math.max(0,flash-dt*2.5);
+  Game.shake=Math.max(0,Game.shake-dt*2.2)+ (P.speed>10?0.010:0);   // rumble of the grass strip
+  Game.flash=Math.max(0,Game.flash-dt*2.5);
   Terrain.update(); Scatter.update(); Clouds.update(); updateBursts();
   if(Math.abs(P.x-af.x)>af.wid*0.5+2){
     G.landLabel="GROUND LOOP — BONUS LOST";
-    popup("GROUND LOOP"); crashSound(); shake=1;
+    popup("GROUND LOOP"); crashSound(); Game.shake=1;
     levelClear(); return;
   }
   if(P.z<af.z-af.len*0.5){
     G.landLabel="RAN OFF THE END — BONUS LOST";
-    popup("OVERRUN"); crashSound(); shake=1;
+    popup("OVERRUN"); crashSound(); Game.shake=1;
     levelClear(); return;
   }
   if(P.speed<3.5){
@@ -2091,21 +2067,21 @@ function updateTakeoff(dt){
     P.vx+=((inp.steer*(7+P.speed*0.26))-P.vx)*Math.min(1,dt*4.0);
     P.roll*=Math.exp(-4*dt);
     P.y=af.y+2.4; P.vy=0;
-    shake=Math.min(0.5,0.04+P.speed*0.0026);          // the strip drumming through the gear
+    Game.shake=Math.min(0.5,0.04+P.speed*0.0026);          // the strip drumming through the gear
   }else{
     TO.rotT+=dt;
     P.vy=Math.min(24,7+TO.rotT*15);                   // she unsticks, then climbs away
     P.y+=P.vy*dt;
     P.vx+=((inp.steer*34)-P.vx)*Math.min(1,dt*3.5);
     P.roll+=((inp.steer*0.26)-P.roll)*Math.min(1,dt*3.0);
-    shake=Math.max(0,shake-dt*2.0);
+    Game.shake=Math.max(0,Game.shake-dt*2.0);
   }
   P.x+=P.vx*dt;
   // full throttle; on the ground she will not run away much past Vr
   const vMax=TO.lifted?SPEED_MAX:TO.vr*1.18;
   P.speed=Math.min(vMax,P.speed+Math.max(2.4,11.5*(1-P.speed/(SPEED_MAX*1.05)))*dt);
   P.z-=P.speed*dt;                                    // the ground roll is not sector distance
-  flash=Math.max(0,flash-dt*2.5);
+  Game.flash=Math.max(0,Game.flash-dt*2.5);
   Terrain.update(); Scatter.update(); Clouds.update(); updateBursts();
 
   const runLeft=P.z-(af.z-af.len*0.5);
@@ -2126,7 +2102,7 @@ function updateTakeoff(dt){
       burst(new THREE.Vector3(P.x,af.y+1,P.z+6),0xd8d0b8,1.0);
     }
   }else if(P.y>af.y+45){                              // clear of the strip: the sector begins
-    state=S.PLAY;
+    Game.state=S.PLAY;
     af.phase=5;
     P.vy=Math.min(P.vy,MAX_VY*0.55);
     popup("AIRBORNE — SECTOR "+G.lvl+" RUNNING");
@@ -2163,13 +2139,13 @@ function update(dt,t){
   if(!af.active||af.phase!==1) P.speed=Math.min(SPEED_MAX,P.speed+SPEED_RAMP*dt);
   P.z-=P.speed*dt; P.dist+=P.speed*dt;
   if(P.invuln>0)P.invuln-=dt;
-  shake=Math.max(0,shake-dt*2.2); flash=Math.max(0,flash-dt*2.5);
+  Game.shake=Math.max(0,Game.shake-dt*2.2); Game.flash=Math.max(0,Game.flash-dt*2.5);
 
   // fuel is the clock you fly against
   G.fuel-=(1.35+0.14*(G.lvl-1))*dt;
   if(G.fuel<=0){G.fuel=0;startDying("Dead <span>stick</span>","tanks dry — engine out");return;}
-  if(G.fuel<20&&AC&&!muted&&performance.now()-lastFuelBeep>1200){
-    lastFuelBeep=performance.now();
+  if(G.fuel<20&&AC&&!muted&&performance.now()-Game.lastFuelBeep>1200){
+    Game.lastFuelBeep=performance.now();
     const o=AC.createOscillator(),g2=AC.createGain();
     o.type="square";o.frequency.value=680;
     g2.gain.setValueAtTime(0.05,AC.currentTime);
@@ -2191,9 +2167,9 @@ function update(dt,t){
   Scatter.update();
   Clouds.update();
 
-  // whiteout in the cloud base — height is not free
+  // Game.whiteout in the cloud base — height is not free
   const over=P.y-(MAX_Y-40);
-  whiteout=clamp(over/55,0,1)*(weather===2?1:0.85);
+  Game.whiteout=clamp(over/55,0,1)*(weather===2?1:0.85);
 
   // climbing away from the departure strip: let it go once it is behind us
   // wait until the grading blend has already faded out, so nothing shifts underneath us
@@ -2235,13 +2211,13 @@ function update(dt,t){
   }
 
   // proximity warning: rising ground ahead
-  if(!warnObst){
+  if(!Game.warnObst){
     for(let d=120;d<=460;d+=85){
-      if(clearanceH(P.x,P.z-d)+34>P.y){ warnObst=true; break; }
+      if(clearanceH(P.x,P.z-d)+34>P.y){ Game.warnObst=true; break; }
     }
   }
-  if(warnObst&&AC&&!muted&&performance.now()-lastBeep>460){
-    lastBeep=performance.now();
+  if(Game.warnObst&&AC&&!muted&&performance.now()-Game.lastBeep>460){
+    Game.lastBeep=performance.now();
     const o=AC.createOscillator(),g=AC.createGain();
     o.type="square";o.frequency.value=1180;
     g.gain.setValueAtTime(0.06,AC.currentTime);
@@ -2254,7 +2230,7 @@ function update(dt,t){
 function resetWorld(){
   P.x=0;P.y=140;P.z=0;P.pz=0;P.vx=0;P.vy=0;P.roll=0;
   P.speed=SPEED0;P.lives=3;P.invuln=0;P.dist=0;
-  shake=0;flash=0;whiteout=0;
+  Game.shake=0;Game.flash=0;Game.whiteout=0;
   dents.length=0;splats.length=0;popups.length=0;gDrops.length=0;
   G.score=0;G.combo=0;G.bestCombo=0;G.fuel=100;G.lvl=1;G.levelEnd=5400;
   G.rings=0;G.ringsHit=0;G.gold=0;G.goldHit=0;G.landLabel="";
@@ -2269,7 +2245,7 @@ function resetWorld(){
   Haz.reset();
   clearOfDeparture();
   for(const b of bursts){b.active=false;b.sp.visible=false;}
-  popup("SECTOR 1: "+THEMES[curTheme].name+" · "+TODS[curTod].name);
+  popup("SECTOR 1: "+THEMES[Game.curTheme].name+" · "+TODS[Game.curTod].name);
   popup("LINE UP — FULL POWER");
 }
 // nothing spawns over the departure strip or its climb-out
@@ -2298,7 +2274,7 @@ function nextSector(){
   G.levelEnd=P.dist+5000+700*G.lvl;
   P.invuln=0;
   if(G.lvl===2)popup("NEW: PYLONS, MASTS & TURBINES");
-  popup("SECTOR "+G.lvl+": "+THEMES[curTheme].name+" · "+TODS[curTod].name+
+  popup("SECTOR "+G.lvl+": "+THEMES[Game.curTheme].name+" · "+TODS[Game.curTod].name+
         (weather?" · "+WEATHERS[weather]:""));
 }
 
@@ -2399,11 +2375,11 @@ function drawHUD(t){
   const wsTop=cowlTop-H*0.105;
 
   // ---- open-air effects ----
-  if(whiteout>0){
-    hctx.fillStyle="rgba(238,244,250,"+(whiteout*0.80).toFixed(3)+")";
+  if(Game.whiteout>0){
+    hctx.fillStyle="rgba(238,244,250,"+(Game.whiteout*0.80).toFixed(3)+")";
     hctx.fillRect(0,0,W,H);
   }
-  if(flash>0){hctx.fillStyle="rgba(210,70,40,"+(flash*0.36).toFixed(3)+")";hctx.fillRect(0,0,W,H);}
+  if(Game.flash>0){hctx.fillStyle="rgba(210,70,40,"+(Game.flash*0.36).toFixed(3)+")";hctx.fillRect(0,0,W,H);}
   // slipstream streaks tearing past the open sides
   {
     const sp=clamp((P.speed-50)/90,0,1);
@@ -2826,7 +2802,7 @@ function drawHUD(t){
   {
     const lamps=[
       ["FUEL","#ffae3a",G.fuel<20&&Math.floor(t/300)%2===0],
-      ["TERR","#ff5a4e",warnObst&&Math.floor(t/220)%2===0],
+      ["TERR","#ff5a4e",Game.warnObst&&Math.floor(t/220)%2===0],
       ["GEAR","#8fe8a0",af.active&&(af.phase===1||af.phase===2||af.phase===4)],
     ];
     const lw=W*0.036, lh=ph*0.16;
@@ -2857,7 +2833,7 @@ function drawHUD(t){
 
   // ---- flying scarf, top corner ----
   {
-    scarfPhase+=0.05+P.speed*0.0006;
+    Game.scarfPhase+=0.05+P.speed*0.0006;
     hctx.save();
     hctx.globalAlpha=0.92;
     hctx.fillStyle="#f4ead4";
@@ -2867,13 +2843,13 @@ function drawHUD(t){
     for(let i=1;i<=6;i++){
       const k=i/6;
       px=W*(0.96-k*0.26);
-      py=H*(0.02+k*0.20)+Math.sin(scarfPhase+i*0.9)*H*0.030*k;
+      py=H*(0.02+k*0.20)+Math.sin(Game.scarfPhase+i*0.9)*H*0.030*k;
       hctx.lineTo(px,py);
     }
     for(let i=6;i>=1;i--){
       const k=i/6;
       const qx=W*(0.96-k*0.26)+W*0.012;
-      const qy=H*(0.02+k*0.20)+Math.sin(scarfPhase+i*0.9)*H*0.030*k+H*0.030;
+      const qy=H*(0.02+k*0.20)+Math.sin(Game.scarfPhase+i*0.9)*H*0.030*k+H*0.030;
       hctx.lineTo(qx,qy);
     }
     hctx.lineTo(W*0.985,H*0.02);
@@ -2902,7 +2878,7 @@ function drawHUD(t){
     hctx.globalAlpha=1;
   }
   // ---- hedge-hopping bonus ----
-  if(state===S.PLAY&&!af.active&&P.y-groundH(P.x,P.z)<45){
+  if(Game.state===S.PLAY&&!af.active&&P.y-groundH(P.x,P.z)<45){
     hctx.globalAlpha=0.55+0.45*Math.sin(t*0.012);
     hctx.fillStyle="#c9ffd0";
     hctx.font="700 "+Math.max(10,H*0.024)+"px ui-monospace,Menlo,Consolas,monospace";
@@ -2911,7 +2887,7 @@ function drawHUD(t){
     hctx.globalAlpha=1;
   }
   // ---- next gate marker ----
-  if(state===S.PLAY&&!af.active){
+  if(Game.state===S.PLAY&&!af.active){
     const g=Rings.nextGate();
     if(g){
       _mark.set(g.x,g.g.position.y,g.z).project(camera);
@@ -2941,12 +2917,12 @@ function drawHUD(t){
     }
   }
   // ---- take-off guidance ----
-  if(state===S.TAKEOFF){
+  if(Game.state===S.TAKEOFF){
     hctx.textAlign="center";hctx.textBaseline="middle";
     hctx.globalAlpha=0.9;
     hctx.fillStyle="#fff0c4";
     hctx.font="800 "+Math.max(11,H*0.026)+"px ui-monospace,Menlo,Consolas,monospace";
-    hctx.fillText(readyT>0?"HOLDING — RUNWAY 18":(TO.lifted?"POSITIVE CLIMB":"TAKE-OFF ROLL"),W/2,H*0.075);
+    hctx.fillText(Game.readyT>0?"HOLDING — RUNWAY 18":(TO.lifted?"POSITIVE CLIMB":"TAKE-OFF ROLL"),W/2,H*0.075);
     hctx.globalAlpha=1;
     if(!TO.lifted){
       // centreline bar, same instrument the landing uses
@@ -2977,14 +2953,14 @@ function drawHUD(t){
     }
   }
   // ---- landing guidance ----
-  if((state===S.PLAY||state===S.ROLLOUT)&&af.active&&af.phase<3){
+  if((Game.state===S.PLAY||Game.state===S.ROLLOUT)&&af.active&&af.phase<3){
     hctx.textAlign="center";hctx.textBaseline="middle";
     hctx.globalAlpha=0.85;
     hctx.fillStyle="#fff0c4";
     hctx.font="800 "+Math.max(11,H*0.026)+"px ui-monospace,Menlo,Consolas,monospace";
-    hctx.fillText(state===S.ROLLOUT?"ROLLOUT — HOLD THE CENTRELINE":"FINAL APPROACH — RUNWAY 18",W/2,H*0.075);
+    hctx.fillText(Game.state===S.ROLLOUT?"ROLLOUT — HOLD THE CENTRELINE":"FINAL APPROACH — RUNWAY 18",W/2,H*0.075);
     hctx.globalAlpha=1;
-    if(state===S.PLAY){
+    if(Game.state===S.PLAY){
       const err=Airfield.glideError();
       const dz=Math.max(0,Math.round(P.z-af.z-af.len*0.5));
       const dx=P.x-af.x;
@@ -3020,16 +2996,16 @@ function drawHUD(t){
     }
   }
   // ---- mayday ----
-  if(state===S.DYING&&Math.floor(t/180)%2===0){
+  if(Game.state===S.DYING&&Math.floor(t/180)%2===0){
     hctx.fillStyle="#ff5a4e";
     hctx.font="800 "+Math.max(18,H*0.055)+"px ui-monospace,Menlo,Consolas,monospace";
     hctx.textAlign="center";
     hctx.fillText("MAYDAY  MAYDAY",W/2,H*0.30);
   }
   // ---- 3-2-1 ----
-  if(state===S.PLAY&&readyT>0){
-    const n=Math.ceil(readyT*1.5);
-    const frac=(readyT*1.5)%1||1;
+  if(Game.state===S.PLAY&&Game.readyT>0){
+    const n=Math.ceil(Game.readyT*1.5);
+    const frac=(Game.readyT*1.5)%1||1;
     hctx.save();
     hctx.globalAlpha=Math.min(1,frac*2);
     hctx.fillStyle="#fff0c4";
@@ -3043,7 +3019,7 @@ function drawHUD(t){
   // ---- tilt status ----
   // Only worth saying on a device that could have tilted; on a desktop the
   // keys are the expected controls, not a fallback.
-  if(state===S.PLAY&&!haveTilt&&CAN_TILT){
+  if(Game.state===S.PLAY&&!haveTilt&&CAN_TILT){
     hctx.fillStyle="#ffd98a";
     hctx.font="600 "+Math.max(9,H*0.020)+"px ui-monospace,Menlo,Consolas,monospace";
     hctx.textAlign="left";hctx.textBaseline="middle";
@@ -3052,56 +3028,54 @@ function drawHUD(t){
 }
 
 // ---------- frame ----------
-let simHold=false;          // test hook: keep rendering, stop the clock
-let looping=true;           // cleared on exit so the aircraft stops burning battery
-function stopLoop(){ looping=false; }
+function stopLoop(){ Game.looping=false; }
 function startLoop(){
-  if(looping) return;
-  looping=true; tPrev=performance.now();
+  if(Game.looping) return;
+  Game.looping=true; Game.tPrev=performance.now();
   requestAnimationFrame(frame);
 }
 function frame(t){
-  if(!looping) return;
+  if(!Game.looping) return;
   requestAnimationFrame(frame);
-  const dt=simHold?0:(Math.min(0.05,(t-tPrev)/1000)||0.016);tPrev=t;
-  if(simHold){
+  const dt=Game.simHold?0:(Math.min(0.05,(t-Game.tPrev)/1000)||0.016);Game.tPrev=t;
+  if(Game.simHold){
     Airfield.update(dt,t);
     renderFrame(t);
     return;
   }
-  if(state===S.PLAY){
-    if(readyT>0)readyT-=dt;
+  if(Game.state===S.PLAY){
+    if(Game.readyT>0)Game.readyT-=dt;
     else update(dt,t);
   }
-  else if(state===S.TAKEOFF){
-    if(readyT>0)readyT-=dt;                 // run-up at the holding point
+  else if(Game.state===S.TAKEOFF){
+    if(Game.readyT>0)Game.readyT-=dt;                 // run-up at the holding point
     else updateTakeoff(dt);
   }
-  else if(state===S.ROLLOUT) updateRollout(dt);
-  else if(state===S.DYING) updateDying(dt);
-  else if(state===S.MENU&&attractOn) updateAttract(dt);
+  else if(Game.state===S.ROLLOUT) updateRollout(dt);
+  else if(Game.state===S.DYING) updateDying(dt);
+  else if(Game.state===S.MENU&&Game.attractOn) updateAttract(dt);
   Airfield.update(dt,t);
   audioTick();
   renderFrame(t);
 }
 function renderFrame(t){
   Shadows.update();
-  const bank=state===S.DYING?Math.sin(dying.roll)*0.95:P.roll;
+  const bank=Game.state===S.DYING?Math.sin(Game.dying.roll)*0.95:P.roll;
   camera.position.set(P.x,P.y,P.z);
-  if(state===S.DYING){
-    camera.rotation.set(-0.34+Math.sin(dying.t*7)*0.05,Math.sin(dying.roll*0.5)*0.25,-bank);
-  }else if(state===S.ROLLOUT){
+  if(Game.state===S.DYING){
+    camera.rotation.set(-0.34+Math.sin(Game.dying.t*7)*0.05,Math.sin(Game.dying.roll*0.5)*0.25,-bank);
+  }else if(Game.state===S.ROLLOUT){
     camera.rotation.set(0.02,0,-bank*0.4);
-  }else if(state===S.TAKEOFF){
+  }else if(Game.state===S.TAKEOFF){
     // tail-down on the roll, nose coming up through the rotation
     camera.rotation.set(0.06-Math.min(0.10,P.speed*0.0011)+(TO.lifted?Math.min(0.16,TO.rotT*0.4):0),
                         0,-bank*0.5);
   }else{
     camera.rotation.set(P.vy*0.0042,-P.vx*0.0016,-bank);
   }
-  if(shake>0){
-    camera.position.x+=(Math.random()-0.5)*shake*4;
-    camera.position.y+=(Math.random()-0.5)*shake*4;
+  if(Game.shake>0){
+    camera.position.x+=(Math.random()-0.5)*Game.shake*4;
+    camera.position.y+=(Math.random()-0.5)*Game.shake*4;
   }
   sky.position.set(P.x,0,P.z);
   sunGlow.position.set(P.x+SUNDIR.x*4000, SUNDIR.y*4000, P.z+SUNDIR.z*4000);
@@ -3109,7 +3083,7 @@ function renderFrame(t){
     const u=r.userData;
     r.position.set(P.x*u.fac, u.h*0.30+TH.amp*0.5, P.z-u.dist);
   }
-  if(postOn&&rtScene){ renderPost(); }
+  if(Game.postOn&&rtScene){ renderPost(); }
   else{ renderer.setRenderTarget(null); renderer.render(scene,camera); }
   drawHUD(t);
 }
@@ -3120,21 +3094,20 @@ const overlays=["startOverlay","pauseOverlay","overOverlay","rotateOverlay","cle
 function show(id){overlays.forEach(o=>document.getElementById(o).classList.toggle("hidden",o!==id));}
 function hideAll(){overlays.forEach(o=>document.getElementById(o).classList.add("hidden"));}
 function isPortrait(){return window.innerHeight>window.innerWidth;}
-let orientPaused=false, prePauseState=S.PLAY;
 function checkOrient(){
   const ro=document.getElementById("rotateOverlay");
-  if(isPortrait()&&state!==S.MENU){
+  if(isPortrait()&&Game.state!==S.MENU){
     ro.classList.remove("hidden");
-    if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;orientPaused=true;}
+    if(Game.state===S.PLAY||Game.state===S.ROLLOUT||Game.state===S.TAKEOFF){Game.prePauseState=Game.state;Game.state=S.PAUSE;Game.orientPaused=true;}
   }else if(!isPortrait()){
     ro.classList.add("hidden");
-    if(state===S.PAUSE&&orientPaused){
-      orientPaused=false;
+    if(Game.state===S.PAUSE&&Game.orientPaused){
+      Game.orientPaused=false;
       calibrate();
       hideAll();
-      readyT=Math.max(readyT,1.0);
-      state=prePauseState;
-    }else if(state===S.PAUSE&&document.getElementById("pauseOverlay").classList.contains("hidden")){
+      Game.readyT=Math.max(Game.readyT,1.0);
+      Game.state=Game.prePauseState;
+    }else if(Game.state===S.PAUSE&&document.getElementById("pauseOverlay").classList.contains("hidden")){
       show("pauseOverlay");
     }
   }
@@ -3157,8 +3130,8 @@ async function startFlow(){
   setTimeout(()=>{
     calibrate();resetWorld();hideAll();
     document.getElementById("uiBtns").style.display="flex";
-    attractOn=false;
-    state=S.TAKEOFF;readyT=2.0;checkOrient();
+    Game.attractOn=false;
+    Game.state=S.TAKEOFF;Game.readyT=2.0;checkOrient();
   },350);
 }
 // A device that cannot tilt shouldn't be offered tilt: the button, the control
@@ -3182,11 +3155,11 @@ async function startFlow(){
 
 document.getElementById("startBtn").addEventListener("click",startFlow);
 document.getElementById("retryBtn").addEventListener("click",()=>{
-  calibrate();resetWorld();hideAll();state=S.TAKEOFF;readyT=2.0;checkOrient();
+  calibrate();resetWorld();hideAll();Game.state=S.TAKEOFF;Game.readyT=2.0;checkOrient();
 });
 document.getElementById("contBtn").addEventListener("click",()=>{
   nextSector();
-  hideAll();state=S.TAKEOFF;readyT=1.6;checkOrient();
+  hideAll();Game.state=S.TAKEOFF;Game.readyT=1.6;checkOrient();
 });
 document.getElementById("entryRow").addEventListener("submit",async (e)=>{
   e.preventDefault();
@@ -3219,11 +3192,11 @@ document.getElementById("entryRow").addEventListener("submit",async (e)=>{
   setTimeout(()=>{ Net.note=""; },6000);
 });
 document.getElementById("pauseBtn").addEventListener("click",()=>{
-  if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
+  if(Game.state===S.PLAY||Game.state===S.ROLLOUT||Game.state===S.TAKEOFF){Game.prePauseState=Game.state;Game.state=S.PAUSE;show("pauseOverlay");}
 });
 document.getElementById("resumeBtn").addEventListener("click",()=>{
   if(isPortrait()){checkOrient();return;}
-  hideAll();state=prePauseState;
+  hideAll();Game.state=Game.prePauseState;
 });
 document.getElementById("recalBtn").addEventListener("click",()=>calibrate());
 
@@ -3235,7 +3208,7 @@ document.getElementById("recalBtn").addEventListener("click",()=>calibrate());
 async function exitGame(){
   Save.flush();
   stopLoop();
-  state=S.MENU; attractOn=false; readyT=0;
+  Game.state=S.MENU; Game.attractOn=false; Game.readyT=0;
   setMuted(true);
   try{ if(AC&&AC.state==="running") await AC.suspend(); }catch(e){}
   try{ if(document.fullscreenElement&&document.exitFullscreen) await document.exitFullscreen(); }catch(e){}
@@ -3262,31 +3235,30 @@ document.getElementById("backBtn").addEventListener("click",()=>{
   startLoop();
   resetWorld();
   popups.length=0;
-  attractOn=true;
-  state=S.MENU;
+  Game.attractOn=true;
+  Game.state=S.MENU;
   show("startOverlay");
   renderBoard();
   Net.load();
 });
 document.getElementById("muteBtn").addEventListener("click",()=>setMuted(!muted));
 document.getElementById("fxBtn").addEventListener("click",()=>{
-  postOn=!postOn;
-  document.getElementById("fxBtn").style.opacity=postOn?"1":"0.4";
+  Game.postOn=!Game.postOn;
+  document.getElementById("fxBtn").style.opacity=Game.postOn?"1":"0.4";
 });
 document.addEventListener("visibilitychange",()=>{
-  if(document.hidden&&(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF)){
-    prePauseState=state;state=S.PAUSE;show("pauseOverlay");
+  if(document.hidden&&(Game.state===S.PLAY||Game.state===S.ROLLOUT||Game.state===S.TAKEOFF)){
+    Game.prePauseState=Game.state;Game.state=S.PAUSE;show("pauseOverlay");
   }
 });
 window.addEventListener("keydown",e=>{
   if(e.key==="Escape"||e.key==="p"){
-    if(state===S.PLAY||state===S.ROLLOUT||state===S.TAKEOFF){prePauseState=state;state=S.PAUSE;show("pauseOverlay");}
-    else if(state===S.PAUSE){hideAll();state=prePauseState;}
+    if(Game.state===S.PLAY||Game.state===S.ROLLOUT||Game.state===S.TAKEOFF){Game.prePauseState=Game.state;Game.state=S.PAUSE;show("pauseOverlay");}
+    else if(Game.state===S.PAUSE){hideAll();Game.state=Game.prePauseState;}
   }
 });
 
 // ---------- attract mode: the countryside flies itself behind the menu ----------
-let attractOn=false;
 function updateAttract(dt){
   P.speed=46;
   P.pz=P.z;
@@ -3306,45 +3278,45 @@ function updateAttract(dt){
 }
 resetWorld();
 popups.length=0;
-attractOn=true;
+Game.attractOn=true;
 renderBoard();            // show the logbook bests on the title card
 Net.load();               // and the world leader, if the board is reachable
 
 // ---------- test hook: drives the game from a headless browser ----------
 window.SKY={
   P,G,af,Rings,Fuel,Haz,Terrain,
-  state:()=>state,
+  state:()=>Game.state,
   // start on the strip, ready to roll
-  takeoff(){ resetWorld(); attractOn=false; hideAll();
+  takeoff(){ resetWorld(); Game.attractOn=false; hideAll();
              document.getElementById("uiBtns").style.display="flex";
-             state=S.TAKEOFF; readyT=0; },
+             Game.state=S.TAKEOFF; Game.readyT=0; },
   // start on the strip and fly her off, so tests begin airborne
   play(){ this.takeoff();
-          for(let i=0;i<1200&&state===S.TAKEOFF;i++) updateTakeoff(0.033);
-          return state===S.PLAY; },
+          for(let i=0;i<1200&&Game.state===S.TAKEOFF;i++) updateTakeoff(0.033);
+          return Game.state===S.PLAY; },
   approach(){ this.play(); G.levelEnd=P.dist+1400; },
   // headless: advance the simulation without waiting on frames
   step(n,dt){
     dt=dt||0.033;
     for(let i=0;i<n;i++){
-      if(state===S.PLAY&&readyT<=0) update(dt,performance.now());
-      else if(state===S.ROLLOUT) updateRollout(dt);
-      else if(state===S.TAKEOFF&&readyT<=0) updateTakeoff(dt);
-      else if(state===S.DYING) updateDying(dt);
+      if(Game.state===S.PLAY&&Game.readyT<=0) update(dt,performance.now());
+      else if(Game.state===S.ROLLOUT) updateRollout(dt);
+      else if(Game.state===S.TAKEOFF&&Game.readyT<=0) updateTakeoff(dt);
+      else if(Game.state===S.DYING) updateDying(dt);
       else break;
     }
-    return {state,z:Math.round(P.z),y:Math.round(P.y),dist:Math.round(P.dist),
+    return {state: Game.state,z:Math.round(P.z),y:Math.round(P.y),dist:Math.round(P.dist),
             score:Math.floor(G.score),rings:G.ringsHit+"/"+G.rings,fuel:Math.round(G.fuel),
             lives:P.lives,label:G.landLabel,afPhase:af.phase};
   },
   aimAt(x,y){ P.x=x; P.y=y; },
-  hold(on){ simHold=!!on; },
+  hold(on){ Game.simHold=!!on; },
   Save,
   courseX:z=>coursePathX(z),
   groundAt:(x,z)=>groundH(x,z),
   drawHUD:t=>drawHUD(t),
   setMuted(m){ setMuted(m); },
-  fx(on){ postOn=on; }
+  fx(on){ Game.postOn=on; }
 };
 
 // ---------- PWA manifest (inline) ----------
