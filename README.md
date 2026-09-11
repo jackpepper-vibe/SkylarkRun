@@ -1,14 +1,48 @@
 # Skylark Run
 
-Open-cockpit air racing over sunlit countryside. Thread the gates, keep the chain
-alive, then put the aeroplane down on the runway at the end of the sector.
+Two aircraft over two worlds, in the browser. A monoplane threading a ring
+course over sunlit countryside and landing on a grass strip; a helicopter
+holding a hover between lit towers after dark and setting down on a pad. You
+pick one at the front door.
 
-The game is a single self-contained `index.html` — Three.js from a CDN, no build
-step. The only server-side piece is one function for the world leaderboard, and
-the game plays perfectly without it. Runs on desktop and installs to a phone home
-screen as a PWA.
+Rotor Run was a separate game. It ran on the same engine as this one — 43 of
+80 functions shared a name, 15 of them byte for byte — so rather than keep two
+copies of the bloom, the input, the audio and the logbook, it was folded in
+here and the two aircraft became implementations of one interface.
 
-![Lined up on a gate](screenshot.png)
+## How it fits together
+
+```
+src/
+  engine    view sky clouds weather post input audio overlays state util
+            logbook damage — shared by both aircraft
+  plane/    config world hud flight    the monoplane and its countryside
+  heli/     config world hud flight    the helicopter and its city
+  main.js   frame loop, menu flow, and the picker that chooses between them
+```
+
+A **Craft** answers a handful of questions: which states it owns, how to tick
+one, how to rig a camera, how to draw its own cockpit, and how a sector starts
+and advances. main.js knows nothing else about what is flying.
+
+Craft are brought in with a dynamic `import()`, not at the top of the file.
+Each one builds a world — a procedural heightfield, or a city of pooled
+buildings — and loading both to fly one would cost that twice over.
+
+The whole of "plane versus helicopter" is a table of constants with matching
+names, a hover floor, whether a sector opens on a runway or already airborne,
+and whether it ends on a strip or a pad:
+
+| | Skylark | Rotor |
+|---|---|---|
+| `SPEED0 / SPEED_MAX` | 62 / 136 | 48 / 112 |
+| `MAX_Y` | 330 | 250 |
+| `LAT_CLAMP` | 560 | 350 |
+| floor | the ground | `MIN_Y: 7`, a hover floor |
+| start | take-off roll, rotate at Vr | airborne |
+| finale | airfield, land and roll out | helipad, down onto the mark |
+
+Both fly for the same logbook.
 
 ## Flying it
 

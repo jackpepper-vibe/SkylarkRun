@@ -14,15 +14,49 @@
 const PLAYWRIGHT = 'file:///C:/Claude/Tools/shot/node_modules/playwright/index.mjs';
 const { chromium } = await import(PLAYWRIGHT);
 import path from 'path';
+import http from 'http';
+import fs from 'fs';
 
-const url = 'file:///' + path.resolve(process.cwd(), 'index.html').replace(/\\/g, '/');
+// The game is served over http rather than opened from a file:// path: ES
+// modules are blocked by CORS on file://, so once the engine is split into
+// modules the page would not load at all. A throwaway static server costs
+// nothing and exercises the game the way it is actually served.
+const ROOT = process.cwd();
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript',
+               '.css':'text/css', '.json':'application/json', '.png':'image/png',
+               '.jpg':'image/jpeg', '.svg':'image/svg+xml', '.ico':'image/x-icon' };
+const server = http.createServer((req, res) => {
+  const rel = decodeURIComponent(req.url.split('?')[0]);
+  // Stand in for the scores endpoint. Answering exactly as a deployment with no
+  // DATABASE_URL does keeps Net on its offline path without a failed request in
+  // the console, so a real error stays visible among the noise.
+  if (rel === '/api/scores') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, configured: false, board: [] }));
+    return;
+  }
+  const file = path.join(ROOT, rel === '/' ? 'index.html' : rel);
+  if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+  fs.readFile(file, (err, buf) => {
+    if (err) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.end(buf);
+  });
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const url = 'http://127.0.0.1:' + server.address().port + '/index.html';
+
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 await page.goto(url);
-await page.waitForTimeout(2500);
+await page.waitForTimeout(1200);
+// The game opens on the craft picker now, and a craft's world is only built
+// when it is chosen. Everything below flies the aeroplane.
+await page.evaluate(() => window.SKY.select('plane'));
+await page.waitForTimeout(1800);
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -144,7 +178,7 @@ const storage = await page.evaluate(() => {
   catch (e) { return false; }
 });
 if (!storage) {
-  console.log('SKIP  logbook persistence   (localStorage unavailable on file://)');
+  check('logbook persistence — localStorage reachable', false, 'storage unavailable over http');
 } else {
   await page.evaluate(() => {
     window.SKY.Save.submit({ name: 'ZZZ', score: 424242, lvl: 7, rings: 9, chain: 6 });
@@ -162,7 +196,57 @@ if (!storage) {
   await page.evaluate(() => { try { window.localStorage.removeItem('skylarkRun.v1'); } catch (e) {} });
 }
 
+// --- the helicopter: a second craft over a second world ---
+// Reloaded rather than switched in place: a craft's world is built when it is
+// chosen, and nothing tears the countryside back down.
+await page.goto(url);
+await page.waitForTimeout(1200);
+const heliErrFrom = errors.length;
+await page.evaluate(() => window.SKY.select('heli'));
+await page.waitForTimeout(2500);
+
+const heli = await page.evaluate(() => {
+  const S = window.SKY;
+  if (S.craft() !== 'heli') return { craft: S.craft() };
+  S.play();
+  const start = { y: S.P.y, dist: S.P.dist };
+  const r = S.step(400);
+  return { craft: S.craft(), start, r, floor: S.P.y };
+});
+check('the helicopter loads and flies', heli.craft === 'heli' && heli.r && heli.r.dist > 400,
+  JSON.stringify(heli.r || heli));
+check('she starts airborne rather than on a strip', heli.r && heli.r.state === 1 && heli.start.y > 20,
+  'opened at ' + (heli.start ? Math.round(heli.start.y) : '?') + ' m');
+
+// The hover floor is the helicopter's equivalent of the ground: fly at it and
+// she should be stopped, not put through the street.
+const floor = await page.evaluate(() => {
+  const S = window.SKY;
+  S.play();
+  S.aimAt(0, 2);            // below MIN_Y
+  S.step(30);
+  return { y: Math.round(S.P.y), lives: S.P.lives };
+});
+check('the hover floor holds her out of the street', floor.y >= 5, JSON.stringify(floor));
+
+// The pad is the finale, as the airfield is for the plane.
+const pad = await page.evaluate(() => {
+  const S = window.SKY;
+  S.approach();
+  for (let i = 0; i < 3000; i++) {
+    const r = S.step(4);
+    if (S.pad && S.pad.active) return { armed: true, dist: Math.round(S.P.dist) };
+    if (r.state !== 1) return { armed: false, state: r.state };
+  }
+  return { armed: false, timeout: true };
+});
+check('the helipad arms for the finale', pad.armed === true, JSON.stringify(pad));
+
+check('the helicopter logs no console errors', errors.length === heliErrFrom,
+  errors.slice(heliErrFrom, heliErrFrom + 4).join(' | '));
+
 check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 await browser.close();
+await new Promise(r => server.close(r));
 console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
 process.exit(failed ? 1 : 0);
