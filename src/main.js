@@ -18,41 +18,11 @@ import { Active } from './active.js';
 import { updateDying } from './damage.js';
 "use strict";
 
-// ---------- choosing an aircraft ----------
-// A craft is loaded on demand rather than imported at the top. Each one brings
-// a world with it — a heightfield countryside, or a city of pooled buildings —
-// and building both to fly one would cost the memory and the load time twice.
-// A dynamic import defers the whole of it, geometry included, until chosen.
-let Craft = null;
-
-const CRAFT = {
-  plane: { label:"Skylark",  sub:"monoplane · open country",
-           load:()=>import('./plane/flight.js').then(m=>m.Plane) },
-  heli:  { label:"Rotor",    sub:"helicopter · night city",
-           load:()=>import('./heli/flight.js').then(m=>m.Helicopter) }
-};
-
-async function selectCraft(id){
-  const entry = CRAFT[id];
-  if(!entry) throw new Error("unknown craft: " + id);
-  Craft = await entry.load();
-  Active.craft = Craft;
-  // The craft owns its own title card wording.
-  const set = (el,html)=>{ const n=document.getElementById(el); if(n) n.innerHTML=html; };
-  set("craftName", Craft.name);
-  set("craftTag", Craft.tagline);
-  set("ctrlLine", Craft.controlLine);
-  set("placardBody", Craft.placard);
-  Craft.reset();
-  popups.length=0;
-  Game.attractOn = true;
-  Game.state = S.MENU;
-  show("startOverlay");
-  renderBoard();
-  Net.load();
-  startLoop();
-  return Craft.id;
-}
+// The aeroplane, behind the Craft interface the engine drives. It is imported
+// for its side effects as much as its object: loading it builds the world.
+import { Plane } from './plane/flight.js';
+const Craft = Plane;
+Active.craft = Craft;
 
 /* ============================================================
    SKYLARK RUN — open-cockpit monoplane air racing in Three.js.
@@ -94,24 +64,23 @@ function frame(t){
   requestAnimationFrame(frame);
   const dt=Game.simHold?0:(Math.min(0.05,(t-Game.tPrev)/1000)||0.016);Game.tPrev=t;
   if(Game.simHold){
-    if(Craft&&Craft.tickWorld) Craft.tickWorld(dt,t);
+    Craft.tickWorld(dt,t);
     renderFrame(t);
     return;
   }
-  if(Craft&&Craft.ownsState(Game.state)){
+  if(Craft.ownsState(Game.state)){
     // A sector opens on a hold — the run-up at the holding point, or the
     // rotors coming up to speed — before the controls go live.
     if(Game.readyT>0) Game.readyT-=dt;
     else Craft.tick(dt,t);
   }
   else if(Game.state===S.DYING) updateDying(dt);
-  else if(Game.state===S.MENU&&Game.attractOn&&Craft) Craft.attract(dt);
-  if(Craft&&Craft.tickWorld) Craft.tickWorld(dt,t);
+  else if(Game.state===S.MENU&&Game.attractOn) Craft.attract(dt);
+  Craft.tickWorld(dt,t);
   audioTick();
   renderFrame(t);
 }
 function renderFrame(t){
-  if(!Craft){ return; }               // nothing to draw until one is chosen
   Craft.rigWorld(t);
   Craft.rigCamera();
   if(Game.postOn&&rtScene){ renderPost(); }
@@ -181,17 +150,6 @@ async function startFlow(){
   if(recal)recal.style.display="none";
 })();
 
-document.querySelectorAll(".craftCard").forEach(b=>{
-  b.addEventListener("click",()=>{
-    b.disabled=true;
-    selectCraft(b.dataset.craft).catch(err=>{
-      b.disabled=false;
-      console.error(err);
-      const n=document.querySelector("#craftOverlay .tiny");
-      if(n) n.textContent="That aircraft failed to load — try the other one.";
-    });
-  });
-});
 document.getElementById("startBtn").addEventListener("click",startFlow);
 document.getElementById("retryBtn").addEventListener("click",()=>{
   calibrate();Craft.reset();hideAll();Game.state=Craft.startState;Game.readyT=Craft.startHold;checkOrient();
@@ -297,8 +255,9 @@ window.addEventListener("keydown",e=>{
   }
 });
 
-// Boot straight to the picker: no world exists until a craft is chosen.
-show("craftOverlay");
+Craft.reset();
+popups.length=0;
+Game.attractOn=true;
 renderBoard();            // the logbook bests are craft-independent
 Net.load();               // and the world leader, if the board is reachable
 
@@ -306,9 +265,7 @@ Net.load();               // and the world leader, if the board is reachable
 window.SKY={
   P,G,
   state:()=>Game.state,
-  craft:()=>Craft&&Craft.id,
-  /** Tests pick a craft first; nothing exists until they do. */
-  select:id=>selectCraft(id),
+  craft:()=>Craft.id,
   // start a sector the way this craft starts one
   takeoff(){ Craft.reset(); Game.attractOn=false; hideAll();
              document.getElementById("uiBtns").style.display="flex";

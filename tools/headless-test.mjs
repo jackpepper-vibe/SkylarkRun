@@ -52,11 +52,7 @@ const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 await page.goto(url);
-await page.waitForTimeout(1200);
-// The game opens on the craft picker now, and a craft's world is only built
-// when it is chosen. Everything below flies the aeroplane.
-await page.evaluate(() => window.SKY.select('plane'));
-await page.waitForTimeout(1800);
+await page.waitForTimeout(2500);
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -196,75 +192,21 @@ if (!storage) {
   await page.evaluate(() => { try { window.localStorage.removeItem('skylarkRun.v1'); } catch (e) {} });
 }
 
-// --- the buttons a player actually presses ---
+// --- the button a player actually presses ---
 // Everything above drives the game through window.SKY, which skips the menu
-// entirely. That is how a broken Fly button shipped: startFlow() assigned to an
-// imported binding and threw, and nothing in the suite ever called it. So click
-// the real controls for each craft.
-for (const [pick, craft] of [['#pickPlane', 'plane'], ['#pickHeli', 'heli']]) {
+// entirely. That is how a broken Fly button once shipped: startFlow() assigned
+// to an imported binding and threw, and nothing in the suite ever called it.
+{
   await page.goto(url);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(2000);
   const before = errors.length;
-  await page.locator(pick).click();
-  await page.waitForTimeout(2500);
-  const picked = await page.evaluate(() => window.SKY.craft());
   await page.locator('#startBtn').click();
   await page.waitForTimeout(2500);
   const flying = await page.evaluate(() => window.SKY.state());
-  check('clicking through to fly the ' + craft + ' starts a sector',
-    picked === craft && flying !== 0 && errors.length === before,
-    'craft ' + picked + ', state ' + flying +
+  check('clicking Fly starts a sector', flying !== 0 && errors.length === before,
+    'state ' + flying +
     (errors.length > before ? ', errors: ' + errors.slice(before, before + 2).join(' | ') : ''));
 }
-
-// --- the helicopter: a second craft over a second world ---
-// Reloaded rather than switched in place: a craft's world is built when it is
-// chosen, and nothing tears the countryside back down.
-await page.goto(url);
-await page.waitForTimeout(1200);
-const heliErrFrom = errors.length;
-await page.evaluate(() => window.SKY.select('heli'));
-await page.waitForTimeout(2500);
-
-const heli = await page.evaluate(() => {
-  const S = window.SKY;
-  if (S.craft() !== 'heli') return { craft: S.craft() };
-  S.play();
-  const start = { y: S.P.y, dist: S.P.dist };
-  const r = S.step(400);
-  return { craft: S.craft(), start, r, floor: S.P.y };
-});
-check('the helicopter loads and flies', heli.craft === 'heli' && heli.r && heli.r.dist > 400,
-  JSON.stringify(heli.r || heli));
-check('she starts airborne rather than on a strip', heli.r && heli.r.state === 1 && heli.start.y > 20,
-  'opened at ' + (heli.start ? Math.round(heli.start.y) : '?') + ' m');
-
-// The hover floor is the helicopter's equivalent of the ground: fly at it and
-// she should be stopped, not put through the street.
-const floor = await page.evaluate(() => {
-  const S = window.SKY;
-  S.play();
-  S.aimAt(0, 2);            // below MIN_Y
-  S.step(30);
-  return { y: Math.round(S.P.y), lives: S.P.lives };
-});
-check('the hover floor holds her out of the street', floor.y >= 5, JSON.stringify(floor));
-
-// The pad is the finale, as the airfield is for the plane.
-const pad = await page.evaluate(() => {
-  const S = window.SKY;
-  S.approach();
-  for (let i = 0; i < 3000; i++) {
-    const r = S.step(4);
-    if (S.world().pad && S.world().pad.active) return { armed: true, dist: Math.round(S.P.dist) };
-    if (r.state !== 1) return { armed: false, state: r.state };
-  }
-  return { armed: false, timeout: true };
-});
-check('the helipad arms for the finale', pad.armed === true, JSON.stringify(pad));
-
-check('the helicopter logs no console errors', errors.length === heliErrFrom,
-  errors.slice(heliErrFrom, heliErrFrom + 4).join(' | '));
 
 check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 await browser.close();

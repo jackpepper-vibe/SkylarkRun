@@ -75,17 +75,6 @@
   .tiny{font-size:11px;color:#fbf4e2;opacity:.75;margin-top:22px;letter-spacing:.05em;}
   #boardList{margin-top:14px;list-style-position:inside;
     font:600 15px ui-monospace,Menlo,monospace;color:#fbf4e2;text-align:left;min-height:20px;}
-  .craftPick{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:22px 0 8px;}
-  .craftCard{width:min(40vw,270px);padding:18px 16px;border-radius:16px;cursor:pointer;
-    background:rgba(251,244,226,0.9);border:2px solid #8a5a2288;color:#3a2c1c;
-    display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;
-    box-shadow:0 6px 18px rgba(20,30,45,0.28);transition:transform .14s ease,border-color .14s ease;}
-  .craftCard:hover,.craftCard:focus-visible{transform:translateY(-4px);border-color:#d9a441;outline:none;}
-  .craftCard svg{width:76px;height:62px;background:#3e7cba;border-radius:12px;padding:4px;}
-  .craftCard b{font-size:1.25rem;letter-spacing:.04em;}
-  .craftCard i{font-style:normal;font-size:.74rem;letter-spacing:.12em;text-transform:uppercase;color:#8a5a22;}
-  .craftCard em{font-style:normal;font-size:.82rem;line-height:1.45;color:#5a4a34;}
-  @media (max-width:560px){ .craftCard{width:min(80vw,300px);} }
 </style>
 </head>
 <body>
@@ -98,39 +87,7 @@
   <button id="pauseBtn" title="Pause">&#10073;&#10073;</button>
 </div>
 
-<div id="craftOverlay" class="overlay">
-  <h1>Skylark <span>Run</span></h1>
-  <div class="sub">choose your aircraft</div>
-  <div class="craftPick">
-    <button class="craftCard" id="pickPlane" data-craft="plane">
-      <svg viewBox="0 0 74 60" aria-hidden="true">
-        <path d="M4 34 L70 34 L66 40 L8 40 Z" fill="#fbf4e2"/>
-        <path d="M30 12 L44 12 L48 34 L26 34 Z" fill="#ffd98a"/>
-        <path d="M33 40 L41 40 L39 52 L35 52 Z" fill="#fbf4e2"/>
-        <circle cx="37" cy="22" r="4" fill="#8a5a22"/>
-      </svg>
-      <b>Skylark</b>
-      <i>monoplane &middot; open country</i>
-      <em>Roll her down the strip, thread the rings over sunlit farmland, and grease the landing at the far end.</em>
-    </button>
-    <button class="craftCard" id="pickHeli" data-craft="heli">
-      <svg viewBox="0 0 74 60" aria-hidden="true">
-        <path d="M6 16 L68 16" stroke="#fbf4e2" stroke-width="4" stroke-linecap="round"/>
-        <path d="M37 16 L37 24" stroke="#fbf4e2" stroke-width="4"/>
-        <ellipse cx="32" cy="34" rx="17" ry="11" fill="#ffd98a"/>
-        <path d="M49 32 L70 30" stroke="#fbf4e2" stroke-width="5" stroke-linecap="round"/>
-        <path d="M66 24 L66 37" stroke="#fbf4e2" stroke-width="4" stroke-linecap="round"/>
-        <path d="M18 48 L46 48" stroke="#fbf4e2" stroke-width="4" stroke-linecap="round"/>
-      </svg>
-      <b>Rotor</b>
-      <i>helicopter &middot; night city</i>
-      <em>Hold a hover between the towers after dark, run the avenues, and set her down on the pad.</em>
-    </button>
-  </div>
-  <div class="tiny">Your logbook is shared &mdash; both aircraft fly for the same board.</div>
-</div>
-
-<div id="startOverlay" class="overlay hidden">
+<div id="startOverlay" class="overlay">
   <svg class="logo" width="86" height="70" viewBox="0 0 74 60" aria-hidden="true">
     <path d="M4 34 L70 34 L66 40 L8 40 Z" fill="#fbf4e2"/>
     <path d="M30 12 L44 12 L48 34 L26 34 Z" fill="#ffd98a"/>
@@ -138,12 +95,15 @@
     <circle cx="37" cy="22" r="4" fill="#8a5a22"/>
     <g class="prop"><rect x="35.6" y="4" width="2.8" height="36" rx="1.4" fill="#fbf4e2" opacity=".85"/></g>
   </svg>
-  <h1 id="craftName">Skylark</h1>
-  <div class="sub" id="craftTag">open cockpit &middot; open country</div>
+  <h1>Skylark <span>Run</span></h1>
+  <div class="sub">open cockpit &middot; open country</div>
   <div class="stat" id="bestLine" style="display:none;margin-bottom:12px;"></div>
   <div class="placard">
     <span id="ctrlLine"><b>TILT</b> to bank &middot; dive &middot; climb</span><br>
-    <span id="placardBody"></span>
+    Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>
+    Thread the <b>rings</b> for points &middot; chain them for multipliers<br>
+    Fuel balloons top the tank &middot; pylons, masts &amp; turbines bite<br>
+    Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out
   </div>
   <button id="startBtn" class="btn">&#9654;&ensp;Enable tilt &amp; fly</button>
   <label id="invertRow" class="tiny" style="display:none;align-items:center;justify-content:center;gap:8px;margin-top:12px;cursor:pointer;">

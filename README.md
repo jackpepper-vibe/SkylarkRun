@@ -1,48 +1,47 @@
 # Skylark Run
 
-Two aircraft over two worlds, in the browser. A monoplane threading a ring
-course over sunlit countryside and landing on a grass strip; a helicopter
-holding a hover between lit towers after dark and setting down on a pad. You
-pick one at the front door.
-
-Rotor Run was a separate game. It ran on the same engine as this one — 43 of
-80 functions shared a name, 15 of them byte for byte — so rather than keep two
-copies of the bloom, the input, the audio and the logbook, it was folded in
-here and the two aircraft became implementations of one interface.
+Open-cockpit air racing over sunlit countryside, in the browser. Roll her down
+the strip, thread the ring course, and grease the landing at the far end of
+every sector.
 
 ## How it fits together
 
 ```
 src/
-  engine    view sky clouds weather post input audio overlays state util
-            logbook damage — shared by both aircraft
-  plane/    config world hud flight    the monoplane and its countryside
-  heli/     config world hud flight    the helicopter and its city
-  main.js   frame loop, menu flow, and the picker that chooses between them
+  engine    view sun clouds weather post input audio overlays state util
+            logbook damage active
+  plane/    config sky world hud flight   the monoplane and its countryside
+  main.js   frame loop and menu flow
 ```
 
-A **Craft** answers a handful of questions: which states it owns, how to tick
-one, how to rig a camera, how to draw its own cockpit, and how a sector starts
-and advances. main.js knows nothing else about what is flying.
+The engine drives the aeroplane through a **Craft** interface — which states it
+owns, how to tick one, how to rig a camera, how to draw its own cockpit, how a
+sector starts and advances — so `main.js` has no idea what it is flying. There
+is one aircraft today; the seam is there because it made the code easier to
+reason about, not because something else is coming.
 
-Craft are brought in with a dynamic `import()`, not at the top of the file.
-Each one builds a world — a procedural heightfield, or a city of pooled
-buildings — and loading both to fly one would cost that twice over.
+`sky.js` lives under `plane/` rather than with the engine: it adds lights to the
+shared scene the moment it is imported, which is emphatically a property of one
+particular world rather than of the renderer. `sun.js` holds the only thing the
+post-processing genuinely needs from a sky — the sun's direction and the
+god-ray strength.
 
-The whole of "plane versus helicopter" is a table of constants with matching
-names, a hover floor, whether a sector opens on a runway or already airborne,
-and whether it ends on a strip or a pad:
+## Checks
 
-| | Skylark | Rotor |
-|---|---|---|
-| `SPEED0 / SPEED_MAX` | 62 / 136 | 48 / 112 |
-| `MAX_Y` | 330 | 250 |
-| `LAT_CLAMP` | 560 | 350 |
-| floor | the ground | `MIN_Y: 7`, a hover floor |
-| start | take-off roll, rotate at Vr | airborne |
-| finale | airfield, land and roll out | helipad, down onto the mark |
+```bash
+npm test        # module wiring, then the headless suite
+npm run check   # module wiring only
+```
 
-Both fly for the same logbook.
+`tools/check-modules.mjs` catches what a runtime only reveals when a particular
+path is taken: assigning to an imported binding, using a name the module never
+imported, assigning to a name declared nowhere. Each of those shipped at least
+once during the module split, and one of them broke the Fly button.
+
+`tools/headless-test.mjs` drives the game through `window.SKY` without waiting
+on frames, so results do not depend on the software GPU. It also clicks the
+real Fly button, because driving only through the test hook is how that broken
+button got past it.
 
 ## Flying it
 

@@ -312,19 +312,12 @@ function updateAttract(dt){
 
 
 // ---------- the craft ----------
-// What the engine is allowed to ask of an aircraft. The helicopter implements
-// the same shape over the city, which is the whole point of the split.
+// What the engine is allowed to ask of an aircraft. There is one today, but the
+// engine talks to it through this shape rather than by name, so main.js has no
+// idea what it is flying.
 export const Plane = {
   id: "plane",
   name: "Skylark",
-  tagline: "open cockpit &middot; open country",
-  controlLine: "<b>TILT</b> to bank &middot; dive &middot; climb",
-  placard:
-    "Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>" +
-    "Thread the <b>rings</b> for points &middot; chain them for multipliers<br>" +
-    "Fuel balloons top the tank &middot; pylons, masts &amp; turbines bite<br>" +
-    "Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out",
-  blurb: "A monoplane over sunlit countryside. Roll her down the strip, thread the rings, and grease the landing at the far end.",
 
   /** The state a sector begins in: on the strip, ready to roll. */
   startState: S.TAKEOFF,
