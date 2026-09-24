@@ -10,7 +10,7 @@ import { CAN_TILT, readInput, calibrate, screenAngle, setInvertPitch,
          setPermState, invertPitch, haveTilt, permState } from './input.js';
 import { obstacleBeep, resumeAudio, suspendAudio, setRain, deathSpiral, fuelBeep, initAudio, audioTick, chime, whoosh, crashSound, setMuted, thud, radioCall, muted } from './audio.js';
 import { DPR, H, W, camera, hctx, renderer, scene } from './view.js';
-import { renderPost, rtScene } from './post.js';
+import { renderComposite, renderPost, rtScene } from './post.js';
 import { overlays, show, hideAll } from './overlays.js';
 import { Active } from './active.js';
 import { updateDying } from './damage.js';
@@ -85,8 +85,10 @@ function frame(t){
 function renderFrame(t){
   Craft.rigWorld(t);
   Craft.rigCamera();
-  if(Game.postOn&&rtScene){ renderPost(); }
-  else{ renderer.setRenderTarget(null); renderer.render(scene,camera); }
+  // the craft's own near-field geometry, if it has any, drawn over the world
+  const overlay=Craft.cockpitPass?Craft.cockpitPass(t):null;
+  if(Game.postOn&&rtScene){ renderPost(overlay); }
+  else renderComposite(null,overlay);
   Craft.drawCockpit(t);
 }
 requestAnimationFrame(frame);

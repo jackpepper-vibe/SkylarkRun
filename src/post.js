@@ -113,6 +113,8 @@ function makeRTs(){
     const lw=Math.max(4,w>>i), lh=Math.max(4,h>>i);
     pyramid.push({a:new THREE.WebGLRenderTarget(lw,lh,hdr), b:new THREE.WebGLRenderTarget(lw,lh,hdr)});
   }
+  // nothing reads the scene's depth afterwards, so do not pay to resolve it
+  rtScene.resolveDepthBuffer=false;
   rtRays=new THREE.WebGLRenderTarget(Math.max(4,w>>2),Math.max(4,h>>2),hdr);
   compMat.uniforms.res.value.set(w,h);
 }
@@ -131,9 +133,9 @@ function blur(level){
 }
 
 const _sunV=new THREE.Vector3();
-function renderPost(){
-  renderer.setRenderTarget(rtScene);
-  renderer.render(scene,camera);
+/** Render the world and an optional near-field overlay, then post-process the lot. */
+function renderPost(overlay){
+  renderComposite(rtScene,overlay);
 
   // bright pass into the top of the pyramid
   brightMat.uniforms.tex.value=rtScene.texture;
@@ -168,4 +170,20 @@ function renderPost(){
   quadPass(compMat,null);
 }
 
-export { renderPost, rtScene };
+// ---------- the world with a near-field overlay (the cockpit) ----------
+// The overlay has its own camera and depth range — a strut 30 cm from the eye
+// and a hill 3 km away cannot share one depth buffer's precision — so it is
+// drawn after the world, over a cleared depth buffer, into the same colour.
+// Each scene's shadow maps are drawn once, on its own pass.
+function renderComposite(target,overlay){
+  renderer.setRenderTarget(target);
+  renderer.render(scene,camera);
+  if(!overlay) return;
+  const auto=renderer.autoClear;
+  renderer.autoClear=false;
+  renderer.clearDepth();
+  renderer.render(overlay.scene,overlay.camera);
+  renderer.autoClear=auto;
+}
+
+export { renderComposite, renderPost, rtScene };

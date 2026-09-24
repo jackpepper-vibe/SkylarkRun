@@ -10,7 +10,7 @@ every sector.
 src/
   engine    view atmosphere quality sun clouds weather post input audio
             overlays state util logbook damage active
-  plane/    config sky terrain water models world hud flight
+  plane/    config sky terrain water models world cockpit hud flight
                                         the monoplane and its countryside
   main.js   frame loop and menu flow
 ```
@@ -229,12 +229,22 @@ Systems are small managers with the same shape — build once, `reset(level)`,
   pixels. A software rasteriser starts on LOW. After that the tier only ever
   steps down, after two 90-frame windows of flying that average over 24 ms. A
   lost WebGL context comes back on LOW.
-- **The cockpit** is drawn in 2D over the render: brass gauges, a magnetic
-  compass, a paper chart on the knee, a parasol wing overhead, a propeller that
-  is a faint disc rather than frozen blades, and a silk scarf in the slipstream.
+- **The cockpit** (`cockpit.js`) is 3D geometry in metres round the pilot's eye:
+  the cowling and decking, the parasol wing with its cabane and lift struts
+  and wires, a brass-framed windscreen, a walnut panel with brass-bezelled
+  gauges, a turn-and-bank with its slip ball, a compass with a swinging card,
+  warning lamps that glow, and the chart and logbook boards on brackets. It is
+  drawn in its own pass after the world, over a cleared depth buffer, into the
+  same HDR target, lit by the world's sun and sky turned into the aircraft's
+  frame, with its own shadow map (the wing shades the cowling) and sky
+  reflections. Static parts are baked into one mesh per material and the
+  dials share an atlas, so it draws in a few dozen calls. Bird strikes and
+  rain are painted on the windscreen, dents and oil on the cowling. What no
+  real cockpit has — guidance, popups, the scarf — stays in the 2D layer
+  (`hud.js`).
 
 Measured cost is under 0.5 ms of JavaScript per frame; on an Intel Iris Xe the
-whole frame takes about 9.5 ms at 1280 x 720 on the HIGH tier.
+whole frame takes about 8.5 ms at 1280 x 720 on the HIGH tier.
 
 ## Development
 

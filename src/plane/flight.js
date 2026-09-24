@@ -23,6 +23,7 @@ import { applyTheme, Airfield, Fuel, Haz, Rings, Scatter, Shadows, Terrain, TH, 
          burst, bursts, clearanceH, coursePathX, groundH, isWood, onField,
          updateBursts } from './world.js';
 import { drawHUD } from './hud.js';
+import { Cockpit } from './cockpit.js';
 
 // ---------- landing ----------
 function touchdown(){
@@ -249,6 +250,7 @@ function resetWorld(){
   G.rings=0;G.ringsHit=0;G.gold=0;G.goldHit=0;G.landLabel="";
   af.active=false;af.phase=0;af.group.visible=false;
   applyTheme(1);
+  Cockpit.setSky(TODS[Game.curTod]);
   Airfield.departure();          // sets P to the holding point; do this before the world
   Terrain.reset();
   Scatter.reset();
@@ -274,6 +276,7 @@ function nextSector(){
   P.lives=Math.min(3,P.lives+1);
   G.landLabel="";
   applyTheme(G.lvl);
+  Cockpit.setSky(TODS[Game.curTod]);
   // taxi back out: a fresh strip a little way on, and the sector starts on the roll
   P.z-=600;
   Airfield.departure();
@@ -380,6 +383,9 @@ export const Plane = {
   },
   nextThemeName(){ return THEMES[G.lvl%THEMES.length].name; },
 
+  /** The 3D cockpit, posed and lit for this frame, as a pass over the world. */
+  cockpitPass(t){ return Cockpit.update(t); },
+  /** The 2D layer over everything: guidance, popups, the scarf. */
   drawCockpit(t){ drawHUD(t); },
 
   /** Craft-specific handles and readings for the headless suite. */
