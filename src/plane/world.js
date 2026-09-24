@@ -15,6 +15,8 @@ import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } 
 import { scene, renderer } from '../view.js';
 import { CANOPY_H, PR, VIEW } from './config.js';
 import { TODS, Sky } from './sky.js';
+import { THEMES, TH, setTerrainTheme, af, baseH, groundH, landuse, isWood, onField, clearanceH,
+         CELL, KIND, CROP, cellPlan, Terrain } from './terrain.js';
 import { G, Game, P, S, TO, popup } from '../state.js';
 import { chime, radioCall, thud } from '../audio.js';
 
@@ -60,195 +62,6 @@ function addRidge(tex,dist,h,alpha,fac){
 addRidge(makeRidgeTexture(21,"#5d7488",true), 3600, 620, 1.0, 0.90);
 addRidge(makeRidgeTexture(77,"#4f6a58",false),2700, 430, 1.0, 0.85);
 
-// ---------- sector themes: the shape of the land ----------
-const THEMES=[
-  {name:"MEADOWS",  amp:82,  f:1.05, ridge:1.00, water:-52, wood:0.60},
-  {name:"HIGHLANDS",amp:142, f:0.80, ridge:1.28, water:-96, wood:0.66},
-  {name:"LAKELAND", amp:96,  f:1.20, ridge:1.10, water:-14, wood:0.58},
-  {name:"DOWNLAND", amp:64,  f:0.92, ridge:0.94, water:-46, wood:0.68},
-];
-let TH=THEMES[0];
-
-// ---------- terrain height field ----------
-// One pure function drives geometry, scatter placement and collision, so
-// what you see is exactly what you hit.
-const af={active:false,x:0,z:0,y:0,len:1000,wid:64,group:null,
-          phase:0,seen:false,rollT:0,strobes:null,papi:null,edge:null,
-          windsockPivot:null};
-function baseH(x,z){
-  const f=TH.f;
-  let h =vnoise(x*0.00072*f, z*0.00072*f);
-  h    +=vnoise(x*0.00210*f, z*0.00210*f)*0.42;
-  h    +=vnoise(x*0.00580*f, z*0.00580*f)*0.15;
-  h    +=vnoise(x*0.01400*f, z*0.01400*f)*0.06;        // hummocks and lane cuttings
-  h=(h/1.63-0.5)*2;                                    // -1 .. 1
-  const s=h<0?-1:1;
-  return s*Math.pow(Math.abs(h),TH.ridge)*TH.amp;
-}
-function groundH(x,z){
-  let h=baseH(x,z);
-  if(af.active){                                       // the airfield is graded flat
-    const dx=Math.abs(x-af.x)-af.wid*0.5-80;
-    const dz=Math.abs(z-af.z)-af.len*0.5-160;
-    const d=Math.hypot(Math.max(0,dx),Math.max(0,dz));
-    if(d<300){ const k=smooth(1-d/300); h=lerp(h,af.y,k); }
-  }
-  return h;
-}
-function landuse(x,z){
-  return vnoise(x*0.0024+7.7, z*0.0024+3.1)*0.72 + vnoise(x*0.0071+2.3, z*0.0071+5.9)*0.28;
-}
-function isWood(x,z){ return landuse(x,z)>TH.wood; }
-function onField(x,z){                                  // inside the graded airfield
-  return af.active&&Math.abs(x-af.x)<af.wid*0.5+55&&Math.abs(z-af.z)<af.len*0.5+140;
-}
-// clearance = the altitude below which you are into the scenery
-function clearanceH(x,z){
-  const g=groundH(x,z);
-  if(onField(x,z)) return g;
-  return g+(isWood(x,z)?CANOPY_H:2);
-}
-
-// ---------- terrain tiles (pooled, recycled around the aircraft) ----------
-const TILE=420, TSEG=14, GX=7, GZ=10;
-const Terrain={
-  tiles:[], water:null, cx:1e9, cz:1e9, mat:null,
-  build(){
-    this.mat=new THREE.MeshLambertMaterial({vertexColors:true});
-    for(let i=0;i<GX*GZ;i++){
-      const geo=new THREE.PlaneGeometry(TILE,TILE,TSEG,TSEG);
-      geo.rotateX(-Math.PI/2);
-      const n=geo.attributes.position.count;
-      geo.setAttribute("color",new THREE.BufferAttribute(new Float32Array(n*3),3));
-      const mesh=new THREE.Mesh(geo,this.mat);
-      mesh.matrixAutoUpdate=false;
-      mesh.visible=false;
-      scene.add(mesh);
-      this.tiles.push({mesh,key:null});
-    }
-    // one water sheet: wherever the land dips below it you get a lake
-    const wtex=(()=>{
-      const c=document.createElement("canvas"); c.width=256; c.height=256;
-      const x=c.getContext("2d");
-      x.fillStyle="#4b86a4"; x.fillRect(0,0,256,256);
-      x.strokeStyle="rgba(255,255,255,0.18)"; x.lineWidth=1.6;
-      for(let i=0;i<90;i++){
-        const y=hash(i*3.1)*256, xx=hash(i*7.7)*256, w=8+hash(i*11.3)*26;
-        x.beginPath(); x.moveTo(xx,y); x.quadraticCurveTo(xx+w*0.5,y-3,xx+w,y); x.stroke();
-      }
-      const t=new THREE.CanvasTexture(c);
-      t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(70,70);
-      t.colorSpace=THREE.SRGBColorSpace; return t;
-    })();
-    this.water=new THREE.Mesh(new THREE.PlaneGeometry(6400,6400),
-      new THREE.MeshPhongMaterial({map:wtex,color:0x9ec6dc,shininess:95,specular:0xffffff,
-        transparent:true,opacity:0.90}));
-    this.water.rotation.x=-Math.PI/2;
-    scene.add(this.water);
-  },
-  colorAt(x,z,h,col){
-    const lu=landuse(x,z);
-    const fx=Math.floor(x/150), fz=Math.floor(z/150);
-    const r=hash2(fx,fz), r2=hash2(fx*1.7+9,fz*2.3+4);
-    let c;
-    if(onField(x,z))                   c=[0.33,0.45,0.22];                      // mown grass
-    else if(h<TH.water+2.5)            c=[0.68,0.62,0.45];                      // shoreline sand
-    else if(lu>TH.wood)                c=[0.13+r*0.05,0.28+r2*0.09,0.14+r*0.04];// woodland
-    else if(h>TH.amp*0.62)             c=[0.40+r*0.10,0.38+r2*0.08,0.30+r*0.06];// bare upland
-    else{
-      // every 150 m square is its own field, cropped or grazed
-      const crops=[[0.78,0.66,0.28],[0.46,0.33,0.20],[0.33,0.53,0.18],
-                   [0.60,0.60,0.24],[0.26,0.45,0.18],[0.70,0.56,0.22]];
-      const grass=[[0.30,0.52,0.24],[0.26,0.47,0.21],[0.34,0.55,0.26],
-                   [0.29,0.50,0.22],[0.24,0.44,0.20],[0.32,0.49,0.23]];
-      const p=(lu>0.34?crops:grass)[Math.floor(r*6)%6];
-      c=[p[0]*(0.90+r2*0.20),p[1]*(0.90+r2*0.20),p[2]*(0.90+r2*0.20)];
-      // hedge line along the field boundary, seen from above
-      const ex=x-fx*150, ez=z-fz*150;
-      if(ex<26||ez<26) c=[c[0]*0.72,c[1]*0.78,c[2]*0.70];
-    }
-    if(h>TH.amp*1.02){                                                          // tops go bare, then white
-      const k=clamp((h-TH.amp*1.02)/(TH.amp*0.5),0,1)*0.85;
-      c=[lerp(c[0],0.92,k),lerp(c[1],0.94,k),lerp(c[2],0.97,k)];
-    }
-    // the palette above is authored in display (sRGB) values; lighting works
-    // in linear, so convert rather than hand-tune a compensating gain
-    const n=0.93+hash2(Math.floor(x/29),Math.floor(z/29))*0.14;
-    col[0]=Math.pow(clamp(c[0]*n,0,1),2.2);
-    col[1]=Math.pow(clamp(c[1]*n,0,1),2.2);
-    col[2]=Math.pow(clamp(c[2]*n,0,1),2.2);
-  },
-  fill(t,ix,iz){
-    const ox=ix*TILE, oz=iz*TILE;
-    const geo=t.mesh.geometry;
-    const arr=geo.attributes.position.array;
-    const na=geo.attributes.normal.array;
-    const ca=geo.attributes.color.array;
-    const n=geo.attributes.position.count;
-    const c=[0,0,0], E=14;
-    for(let i=0;i<n;i++){
-      const wx=ox+arr[i*3], wz=oz+arr[i*3+2];
-      const h=groundH(wx,wz);
-      arr[i*3+1]=h;
-      // analytic normals keep the lighting continuous across tile seams
-      const nx=-(groundH(wx+E,wz)-groundH(wx-E,wz)), ny=2*E,
-            nz=-(groundH(wx,wz+E)-groundH(wx,wz-E));
-      const inv=1/Math.hypot(nx,ny,nz);
-      na[i*3]=nx*inv; na[i*3+1]=ny*inv; na[i*3+2]=nz*inv;
-      this.colorAt(wx,wz,h,c);
-      ca[i*3]=c[0]; ca[i*3+1]=c[1]; ca[i*3+2]=c[2];
-    }
-    geo.attributes.position.needsUpdate=true;
-    geo.attributes.normal.needsUpdate=true;
-    geo.attributes.color.needsUpdate=true;
-    geo.computeBoundingSphere();
-    t.mesh.position.set(ox,0,oz);
-    t.mesh.updateMatrix();
-    t.mesh.visible=true;
-    t.key=ix+"|"+iz;
-  },
-  refresh(force){
-    const cx=Math.round(P.x/TILE), cz=Math.round(P.z/TILE);
-    if(!force&&cx===this.cx&&cz===this.cz) return;
-    this.cx=cx; this.cz=cz;
-    const want=[];
-    for(let i=0;i<GX;i++)
-      for(let j=0;j<GZ;j++)
-        want.push([cx-((GX-1)>>1)+i, cz+1-j]);   // one tile behind, the rest ahead
-    const wantKeys=new Set(want.map(w=>w[0]+"|"+w[1]));
-    const spare=[];
-    for(const t of this.tiles){
-      if(force||!t.key||!wantKeys.has(t.key)){ t.key=null; t.mesh.visible=false; spare.push(t); }
-    }
-    const have=new Set();
-    for(const t of this.tiles) if(t.key) have.add(t.key);
-    for(const w of want){
-      const k=w[0]+"|"+w[1];
-      if(have.has(k)) continue;
-      const t=spare.pop();
-      if(!t) break;
-      this.fill(t,w[0],w[1]);
-    }
-  },
-  update(){
-    this.refresh(false);
-    const step=200;
-    this.water.position.set(Math.round(P.x/step)*step, TH.water, Math.round(P.z/step)*step);
-  },
-  // re-cut only the tiles around a point: moving the airfield re-grades the
-  // ground under it, and a full refill would show as a hitch
-  regrade(zc,rad){
-    for(const t of this.tiles){
-      if(!t.key) continue;
-      const p=t.key.split("|");
-      const ix=+p[0], iz=+p[1];
-      if(Math.abs(iz*TILE-zc)>rad+TILE) continue;
-      this.fill(t,ix,iz);
-    }
-  },
-  reset(){ this.refresh(true); this.update(); }
-};
-Terrain.build();
 
 // ---------- contact shadows ----------
 // No shadow maps: the sun is fixed per sector, so a soft blob laid on the
@@ -331,10 +144,10 @@ Shadows.build();
 // ---------- scatter: woodland, hedgerows, rocks, farmsteads ----------
 // A deterministic cell grid, rebuilt whenever the aircraft crosses a cell
 // boundary. Every item sits on the same height field used for collision.
-const CELL=95, SCX=17, SCZ=26;
+const SCX=17, SCZ=26;
 const Scatter={
   cx:1e9, cz:1e9,
-  m:{}, n:{},
+  m:{}, n:{}, plan:{},
   caps:{trunk:1600,canopy:1600,bush:1000,rock:320,wall:220,roof:220,hay:220,shade:900},
   dummy:new THREE.Object3D(), col:new THREE.Color(),
   build(){
@@ -394,42 +207,41 @@ const Scatter={
     this.put("canopy",x,y+4.0*s+2.4*s,z,3.0*s,3.6*s,3.0*s,r()*3,cols[(r()*5)|0]);
     this.shade(x,z,y,3.4*s,6.4*s);
   },
+  // One cell of countryside, dressed from its plan. The plan (terrain.js)
+  // decides what the field is and where its hedges and gate are — the ground
+  // shader paints from the same plan — and a second random stream, seeded
+  // from the cell, decides where individual things stand.
   cell(gx,gz){
-    const seed=(gx*73856093)^(gz*19349663);
-    const r=mulberry32(seed|0);
+    const p=cellPlan(gx,gz,this.plan);
+    const r=mulberry32((((gx*83492791)^(gz*2971215073))+0x5bd1e995)|0);
     const bx=gx*CELL, bz=gz*CELL;
-    const lu=landuse(bx+CELL*0.5,bz+CELL*0.5);
     if(onField(bx+CELL*0.5,bz+CELL*0.5)) return;
-    if(lu>TH.wood){                                     // woodland: dense stand of trees
-      const n=5+Math.floor(r()*5);
-      for(let i=0;i<n;i++) this.tree(bx+r()*CELL, bz+r()*CELL, r);
-    }else if(lu>0.34){                                  // farmland: hedged field boundaries
-      const hedgeCol=[0x335a28,0x2c5024,0x3c6330];
-      if(r()<0.82){
-        for(let i=0;i<9;i++){
-          const x=bx+i*(CELL/9)+r()*4, z=bz+r()*3;
-          const y=groundH(x,z);
-          if(y>TH.water+1) this.put("bush",x,y,z,2.4+r()*1.4,2.0+r()*1.2,2.0+r()*1.0,r()*3,hedgeCol[(r()*3)|0]);
-        }
+    // woodland: trees wherever the land-use field is over the line, so the
+    // canopy edge is the same organic line the ground and the collision use
+    if(p.lu>TH.wood-0.06){
+      const n=p.kind===KIND.WOOD?9:5;
+      for(let i=0;i<n;i++){
+        const x=bx+r()*CELL, z=bz+r()*CELL;
+        if(isWood(x,z)) this.tree(x,z,r);
       }
-      if(r()<0.72){
-        for(let i=0;i<9;i++){
-          const x=bx+r()*3, z=bz+i*(CELL/9)+r()*4;
-          const y=groundH(x,z);
-          if(y>TH.water+1) this.put("bush",x,y,z,2.4+r()*1.4,2.0+r()*1.2,2.0+r()*1.0,r()*3,hedgeCol[(r()*3)|0]);
-        }
-      }
-      if(r()<0.30){                                     // hay bales rolled up in the corner
-        const n=2+Math.floor(r()*4);
+      if(p.kind===KIND.WOOD) return;
+    }
+    if(p.hedgeN) this.hedge(bx,bz,1,0,p.gate,r);
+    if(p.hedgeW) this.hedge(bx,bz,0,1,p.gate,r);
+    if(p.kind===KIND.ARABLE){
+      // bales only lie in a field that has been cut
+      if((p.variant===CROP.STUBBLE||p.variant===CROP.BARLEY)&&r()<0.55){
+        const n=3+Math.floor(r()*5), ry=p.angle;
         for(let i=0;i<n;i++){
-          const x=bx+20+r()*55, z=bz+20+r()*55, y=groundH(x,z);
-          if(y>TH.water+1) this.put("hay",x,y+1.6,z,1.6,1.6,3.0,r()*3);
+          const x=bx+14+r()*67, z=bz+14+r()*67, y=groundH(x,z);
+          if(y>TH.water+1) this.put("hay",x,y+1.6,z,1.6,1.6,3.0,ry+(r()-0.5)*0.4);
         }
       }
-      if(r()<0.14) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
-      if(r()<0.20) this.tree(bx+r()*CELL, bz+r()*CELL, r);
-    }else{                                              // open pasture: scattered trees & stone
-      if(r()<0.55) this.tree(bx+r()*CELL, bz+r()*CELL, r);
+      if(r()<0.12) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
+      if(r()<0.18) this.hedgerowTree(bx,bz,p,r);
+    }else{                                              // pasture: parkland trees and stone
+      if(r()<0.55) this.tree(bx+8+r()*(CELL-16), bz+8+r()*(CELL-16), r);
+      if(r()<0.35) this.hedgerowTree(bx,bz,p,r);
       if(r()<0.25){
         const x=bx+r()*CELL, z=bz+r()*CELL, y=groundH(x,z);
         if(y>TH.water+1){
@@ -439,6 +251,23 @@ const Scatter={
       }
       if(r()<0.07) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
     }
+  },
+  // a hedge along one edge of a cell, from its corner in direction (dx, dz),
+  // with a gap where the plan puts the gate
+  hedge(bx,bz,dx,dz,gate,r){
+    const hedgeCol=[0x335a28,0x2c5024,0x3c6330];
+    for(let i=0;i<10;i++){
+      const t=(i+0.5)/10*CELL;
+      if(Math.abs(t-gate*CELL)<5.5) continue;
+      const x=bx+dx*t, z=bz+dz*t, y=groundH(x,z);
+      if(y>TH.water+1) this.put("bush",x,y,z,2.4+r()*1.4,2.0+r()*1.2,2.0+r()*1.0,r()*3,hedgeCol[(r()*3)|0]);
+    }
+  },
+  // an oak left standing in a hedge line
+  hedgerowTree(bx,bz,p,r){
+    const t=(0.1+r()*0.8)*CELL;
+    if(p.hedgeN&&(r()<0.5||!p.hedgeW)) this.tree(bx+t,bz,r);
+    else if(p.hedgeW) this.tree(bx,bz+t,r);
   },
   farmstead(x,z,r){
     const y=groundH(x,z);
@@ -1168,10 +997,7 @@ function makeRunwayTexture(){
 const Airfield={
   build(){
     const g=new THREE.Group();
-    const apron=new THREE.Mesh(new THREE.PlaneGeometry(af.wid+150,af.len+340),
-      new THREE.MeshLambertMaterial({color:0x5f7f3c}));
-    apron.rotation.x=-Math.PI/2; apron.position.y=0.08;
-    g.add(apron);
+    // no apron mesh: the ground shader mows the field inside af's footprint
     const strip=new THREE.Mesh(new THREE.PlaneGeometry(af.wid,af.len),
       new THREE.MeshLambertMaterial({map:makeRunwayTexture()}));
     strip.rotation.x=-Math.PI/2; strip.position.y=0.18;
@@ -1331,7 +1157,7 @@ Airfield.build();
 // ---------- sector setup ----------
 function applyTheme(lvl){
   Game.curTheme=(lvl-1)%THEMES.length;
-  TH=THEMES[Game.curTheme];
+  setTerrainTheme(Game.curTheme);
   Game.curTod=(lvl-1)%TODS.length;
   const td=TODS[Game.curTod];
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
