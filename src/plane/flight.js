@@ -5,7 +5,7 @@
 // is set up and advanced. The engine drives all of it through the Plane object
 // at the foot of this file, so main.js never needs to know which aircraft is
 // flying.
-/* global THREE */
+import * as THREE from 'three';
 import { clamp } from '../util.js';
 import { S, Game, TO, P, G, dents, popups, popup } from '../state.js';
 import { readInput } from '../input.js';

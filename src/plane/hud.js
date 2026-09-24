@@ -7,7 +7,7 @@
 //
 // This is the most aircraft-specific part of the game, so it is the piece a
 // helicopter will replace wholesale rather than reuse.
-/* global THREE */
+import * as THREE from 'three';
 import { H, W, camera, hctx } from '../view.js';
 import { clamp, hash } from '../util.js';
 import { splats } from '../damage.js';
@@ -67,6 +67,52 @@ function brassGauge(x,y,r,val,label,warn,ticks){
   hctx.globalAlpha=1;
   hctx.restore();
 }
+// The propeller disc. The disc and tip ring are painted once per viewport size
+// into an offscreen canvas; each frame only blits it and lays two soft blur
+// sectors over it, turning at the slow apparent rate a real prop shows.
+const PropDisc={
+  cv:null, key:"", R:0,
+  bake(){
+    const key=W+"x"+H;
+    const R=Math.round(Math.hypot(W,H)*0.60);
+    if(key===this.key) return;
+    this.key=key; this.R=R;
+    const c=this.cv||(this.cv=document.createElement("canvas"));
+    c.width=c.height=R*2;
+    const x=c.getContext("2d");
+    x.clearRect(0,0,R*2,R*2);
+    x.translate(R,R);
+    // the disc: faint near the hub where the blades are slow and narrow,
+    // a touch denser out toward the tips
+    const g=x.createRadialGradient(0,0,R*0.05,0,0,R);
+    g.addColorStop(0,"rgba(34,28,20,0.00)");
+    g.addColorStop(0.55,"rgba(34,28,20,0.030)");
+    g.addColorStop(0.88,"rgba(34,28,20,0.050)");
+    g.addColorStop(0.93,"rgba(214,168,58,0.10)");       // painted tips
+    g.addColorStop(0.97,"rgba(34,28,20,0.045)");
+    g.addColorStop(1,"rgba(34,28,20,0)");
+    x.fillStyle=g; x.beginPath(); x.arc(0,0,R,0,7); x.fill();
+  },
+  draw(t,rev){
+    if(Game.state===S.MENU) return;
+    this.bake();
+    const R=this.R;
+    hctx.drawImage(this.cv,-R,-R);
+    // two blur sectors, each a wedge fading along its trailing edge; they turn
+    // slowly, and a little faster as the revs come up
+    const ang=t*0.0011*(0.6+rev*0.8);
+    for(let b=0;b<2;b++){
+      const a=ang+b*Math.PI;
+      const sg=hctx.createRadialGradient(0,0,R*0.08,0,0,R);
+      sg.addColorStop(0,"rgba(30,24,16,0)");
+      sg.addColorStop(0.7,"rgba(30,24,16,0.035)");
+      sg.addColorStop(1,"rgba(30,24,16,0)");
+      hctx.fillStyle=sg;
+      hctx.beginPath(); hctx.moveTo(0,0); hctx.arc(0,0,R,a,a+0.55); hctx.closePath(); hctx.fill();
+    }
+  }
+};
+
 function drawSplats(){
   for(const s of splats){
     hctx.save();
@@ -142,29 +188,16 @@ function drawHUD(t){
   hctx.save();
   hctx.translate(ox,oy);
 
-  // ---- propeller: two blades in front of everything ----
+  // ---- propeller: a disc, not blades ----
+  // At full revs a propeller is all but invisible: a faint smoky disc, a slow
+  // shimmer where the eye beats against the blades, and the painted tips
+  // drawing a ring. Solid blades freeze into a dark bar across the view in
+  // any single frame, so none are drawn.
   {
-    // the disc is drawn larger than the screen so no rim ever shows
-    const cx=W/2, cy=cowlTop+H*0.02, R=Math.hypot(W,H)*0.62;
-    const ang=t*0.0012*Math.PI*2*7.4*(0.45+P.speed/SPEED_MAX*0.55);
+    const cx=W/2, cy=cowlTop+H*0.02;
     hctx.save();
     hctx.translate(cx,cy);
-    for(let b=0;b<2;b++){
-      hctx.save();
-      hctx.rotate(ang+b*Math.PI);
-      hctx.globalAlpha=0.11;
-      hctx.fillStyle="#20180f";
-      hctx.beginPath();
-      hctx.moveTo(0,-6);hctx.lineTo(R,-R*0.022);
-      hctx.lineTo(R,R*0.022);hctx.lineTo(0,6);
-      hctx.closePath();hctx.fill();
-      hctx.globalAlpha=0.04;hctx.rotate(-0.16);
-      hctx.beginPath();
-      hctx.moveTo(0,-6);hctx.lineTo(R,-R*0.045);
-      hctx.lineTo(R,R*0.045);hctx.lineTo(0,6);
-      hctx.closePath();hctx.fill();
-      hctx.restore();
-    }
+    PropDisc.draw(t, 0.45+P.speed/SPEED_MAX*0.55);
     // spinner and the hub blur just above the cowl
     hctx.globalAlpha=0.9;
     hctx.fillStyle="#7a8a72";

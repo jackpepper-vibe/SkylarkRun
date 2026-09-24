@@ -3,7 +3,7 @@
 // A sector is clear, overcast, wet or gusty. Wind pushes the aircraft about
 // and the rain is one recycled point cloud; both read their state from Game,
 // so the cloud field and this module stay independent of each other.
-/* global THREE */
+import * as THREE from 'three';
 import { scene } from './view.js';
 import { Game, P } from './state.js';
 import { setRain } from './audio.js';

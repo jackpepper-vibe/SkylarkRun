@@ -7,7 +7,7 @@
 // Damage is imported rather than raised as an event: a collision here calls
 // crash() directly. The two modules import each other, which ES modules allow
 // because neither touches the other at evaluation time — only inside handlers.
-/* global THREE */
+import * as THREE from 'three';
 import { SUNDIR, Sun } from '../sun.js';
 import { crash, birdStrike } from '../damage.js';
 import { applyWeather } from '../weather.js';
@@ -42,7 +42,7 @@ function makeRidgeTexture(seed,col,snow){
   }
   const t=new THREE.CanvasTexture(c);
   t.wrapS=THREE.RepeatWrapping; t.repeat.set(4,1);
-  t.encoding=THREE.sRGBEncoding;
+  t.colorSpace=THREE.SRGBColorSpace;
   return t;
 }
 const ridges=[];
@@ -136,7 +136,7 @@ const Terrain={
       }
       const t=new THREE.CanvasTexture(c);
       t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(70,70);
-      t.encoding=THREE.sRGBEncoding; return t;
+      t.colorSpace=THREE.SRGBColorSpace; return t;
     })();
     this.water=new THREE.Mesh(new THREE.PlaneGeometry(6400,6400),
       new THREE.MeshPhongMaterial({map:wtex,color:0x9ec6dc,shininess:95,specular:0xffffff,
@@ -541,7 +541,7 @@ const ringStripeTex=(()=>{
   }
   const t=new THREE.CanvasTexture(c);
   t.wrapS=t.wrapT=THREE.RepeatWrapping;
-  t.encoding=THREE.sRGBEncoding;
+  t.colorSpace=THREE.SRGBColorSpace;
   return t;
 })();
 const ringGoldTex=(()=>{
@@ -555,7 +555,7 @@ const ringGoldTex=(()=>{
   }
   const t=new THREE.CanvasTexture(c);
   t.wrapS=t.wrapT=THREE.RepeatWrapping;
-  t.encoding=THREE.sRGBEncoding;
+  t.colorSpace=THREE.SRGBColorSpace;
   return t;
 })();
 const RING_R=13.5, RING_HIT=13.0;
@@ -707,7 +707,7 @@ const chuteTex=(()=>{
   for(let i=0;i<8;i++){ x.fillStyle=i%2?"#25b566":"#f4efdc"; x.fillRect(i*8,0,8,16); }
   const t=new THREE.CanvasTexture(c);
   t.wrapS=t.wrapT=THREE.RepeatWrapping;
-  t.encoding=THREE.sRGBEncoding;
+  t.colorSpace=THREE.SRGBColorSpace;
   return t;
 })();
 const Fuel={
@@ -800,7 +800,7 @@ const balloonTexs=(()=>{
     for(let i=0;i<16;i++){ x.fillStyle=pr[i%2]; x.fillRect(i*8,0,8,16); }
     const t=new THREE.CanvasTexture(c);
     t.wrapS=t.wrapT=THREE.RepeatWrapping;
-    t.encoding=THREE.sRGBEncoding;
+    t.colorSpace=THREE.SRGBColorSpace;
     return t;
   });
 })();
@@ -1161,7 +1161,7 @@ function makeRunwayTexture(){
   x.fillText("36",0,0);
   x.restore();
   const t=new THREE.CanvasTexture(c);
-  t.encoding=THREE.sRGBEncoding;
+  t.colorSpace=THREE.SRGBColorSpace;
   t.anisotropy=4;
   return t;
 }
@@ -1336,8 +1336,8 @@ function applyTheme(lvl){
   const td=TODS[Game.curTod];
   sky.material.map=skyTexs[Game.curTod]; sky.material.needsUpdate=true;
   scene.fog.color.set(td.fog);
-  sunLight.color.set(td.sunC); sunLight.intensity=td.sunI;
-  hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG); hemiLight.intensity=td.hemiI;
+  sunLight.color.set(td.sunC); sunLight.intensity=td.sunI*Math.PI;
+  hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG); hemiLight.intensity=td.hemiI*Math.PI;
   renderer.toneMappingExposure=td.exp;
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
   Sun.ray=td.ray;

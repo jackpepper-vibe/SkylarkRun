@@ -1,9 +1,8 @@
 // Skylark Run — small pure helpers.
 //
 // Nothing in here reads or writes game state, which is what makes it safe to
-// share between the engine, the craft and the worlds. A few need THREE, which
-// is the r128 global build rather than an import.
-/* global THREE */
+// share between the engine, the craft and the worlds.
+import * as THREE from 'three';
 import { hctx } from './view.js';
 
 export function hash(n){let x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);}

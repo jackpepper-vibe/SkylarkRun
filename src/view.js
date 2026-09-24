@@ -3,7 +3,7 @@
 // W, H and DPR are written only by resize(), which lives here, so every other
 // module reads them as live bindings and sees the current size without a
 // setter or a rename. The HUD is a plain 2D canvas laid over the GL one.
-/* global THREE */
+import * as THREE from 'three';
 
 
 // ---------- canvases / three ----------
@@ -13,7 +13,7 @@ let W=0,H=0,DPR=1;
 const renderer=new THREE.WebGLRenderer({canvas:glc,antialias:true});
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.0;
-renderer.outputEncoding=THREE.sRGBEncoding;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
 const scene=new THREE.Scene();
 scene.fog=new THREE.Fog(0xbcd8ee,800,3400);
 const camera=new THREE.PerspectiveCamera(72,1,0.5,9000);

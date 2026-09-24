@@ -8,7 +8,7 @@
 // Keeping this apart from either sky is what stops the engine importing the
 // plane's sky module, which used to add a daylight hemisphere to the scene
 // whatever was being flown and washed the night city pale blue.
-/* global THREE */
+import * as THREE from 'three';
 
 /** Unit vector from the aircraft toward the sun. Worlds set this per sector. */
 export const SUNDIR = new THREE.Vector3(0.45, 0.62, -0.65).normalize();

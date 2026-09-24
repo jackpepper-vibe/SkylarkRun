@@ -4,7 +4,6 @@
 // readInput() returns { steer, pitch } in -1..1 and the flight code never has
 // to know which device produced it — which is also what will let a helicopter
 // reuse this untouched.
-/* global THREE */
 import { clamp } from './util.js';
 import { S, Game } from './state.js';
 

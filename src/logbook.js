@@ -5,7 +5,6 @@
 // /api/scores and is allowed to be absent — opened straight off disk, or with
 // no database configured, the game carries on without it. Nothing in the
 // flight loop ever waits on the network.
-/* global THREE */
 import { esc, ordinal } from './util.js';
 
 // ---------- the logbook: scores that survive a reload ----------

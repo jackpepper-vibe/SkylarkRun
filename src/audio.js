@@ -3,7 +3,6 @@
 // A radial engine, the slipstream past an open cockpit, and a small score,
 // all synthesised through the Web Audio API rather than loaded as files.
 // Everything hangs off one master gain so muting is a single switch.
-/* global THREE */
 import { clamp, midiF } from './util.js';
 // The engine note rides airspeed as a fraction of the envelope. Both craft
 // define SPEED_MAX; the plane's is the reference the mix was tuned against.

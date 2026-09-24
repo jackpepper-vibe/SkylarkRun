@@ -4,7 +4,7 @@
 // costs almost nothing and reads as weather from a cockpit. How solid they
 // look comes from the weather on Game, which is why this module needs nothing
 // from weather.js.
-/* global THREE */
+import * as THREE from 'three';
 import { Game, P } from './state.js';
 import { hash } from './util.js';
 import { scene } from './view.js';
@@ -32,7 +32,7 @@ const cloudTex=(()=>{
   x.globalCompositeOperation="source-atop";
   x.fillStyle=sg; x.fillRect(0,0,256,160);
   x.globalCompositeOperation="source-over";
-  const t=new THREE.CanvasTexture(c); t.encoding=THREE.sRGBEncoding; return t;
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
 })();
 const Clouds={
   N:56, list:[],

@@ -5,7 +5,6 @@
 // entry. countryside.js calls in here on a collision, and this module reads
 // the terrain back — a cycle ES modules allow because neither side touches the
 // other while the modules are being evaluated.
-/* global THREE */
 import { G, Game, P, S, dents, popup } from './state.js';
 import { chime, crashSound, deathSpiral, thud } from './audio.js';
 import { SPEED0 } from './plane/config.js';

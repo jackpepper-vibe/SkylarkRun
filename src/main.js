@@ -1,9 +1,7 @@
 // Skylark Run — game code.
 //
-// Loaded as an ES module so the engine can be split into files. three.js is
-// still the r128 global build from the CDN, so THREE is referenced as a global
-// here rather than imported.
-/* global THREE */
+// Loaded as an ES module; three.js arrives through the import map in
+// index.html, so every module that needs it imports it by name.
 import { hash, hash2, mulberry32, clamp, lerp, smooth, vnoise, lineGeo,
          shade, midiF, roundedPoly, esc, ordinal } from './util.js';
 import { Save, Net, renderBoard, cleanName, NAME_MAX } from './logbook.js';

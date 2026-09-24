@@ -19,7 +19,7 @@ import path from 'path';
 
 const SRC = path.join(process.cwd(), 'src');
 
-const GLOBALS = new Set(('THREE window document console Math Date JSON Object Array String Number ' +
+const GLOBALS = new Set(('window document console Math Date JSON Object Array String Number ' +
   'Boolean Promise Set Map WeakMap performance localStorage navigator screen location history ' +
   'requestAnimationFrame cancelAnimationFrame setTimeout setInterval clearTimeout clearInterval ' +
   'Float32Array Uint8Array Uint16Array Int32Array Int8Array isNaN isFinite parseInt parseFloat ' +
@@ -58,6 +58,8 @@ function importedNames(src) {
       if (n) names.set(n, m[2]);
     }
   }
+  for (const m of src.matchAll(/import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*['"]([^'"]+)['"]/g))
+    names.set(m[1], m[2]);
   return names;
 }
 
@@ -149,6 +151,14 @@ for (const file of files) {
   // would erase the module specifiers and make every import invisible.
   const imported = importedNames(raw);
   const local = boundLocally(src);
+
+  // --- 0. three.js is a module now, not a page global ---
+  // Using THREE without importing it is a ReferenceError the moment that line
+  // runs, and like the faults above it may sit on a path only a button reaches.
+  if (/(?<![.\w$])THREE\./.test(src) && !imported.has('THREE')) {
+    console.log(`FAIL  ${rel}  uses THREE without \`import * as THREE from 'three'\``);
+    problems++;
+  }
 
   // --- 1. assignment to an imported binding ---
   for (const [name, spec] of imported) {

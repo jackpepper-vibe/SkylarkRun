@@ -6,7 +6,7 @@
 // Every sector shifts the sun, so the whole palette — light colour, fog, the
 // dome gradient and the glow around the disc — is driven from one table of
 // times of day rather than set per scene.
-/* global THREE */
+import * as THREE from 'three';
 import { SUNDIR } from '../sun.js';
 import { scene } from '../view.js';
 import { hash } from '../util.js';
@@ -65,7 +65,7 @@ function makeSkyTexture(tod){
     }
   }
   const t=new THREE.CanvasTexture(c);
-  t.encoding=THREE.sRGBEncoding;
+  t.colorSpace=THREE.SRGBColorSpace;
   return t;
 }
 const skyTexs=[0,1,2,3].map(makeSkyTexture);
