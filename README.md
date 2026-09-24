@@ -229,22 +229,25 @@ Systems are small managers with the same shape — build once, `reset(level)`,
   pixels. A software rasteriser starts on LOW. After that the tier only ever
   steps down, after two 90-frame windows of flying that average over 24 ms. A
   lost WebGL context comes back on LOW.
-- **The cockpit** (`cockpit.js`) is 3D geometry in metres round the pilot's eye:
-  the cowling and decking, the parasol wing with its cabane and lift struts
-  and wires, a brass-framed windscreen, a walnut panel with brass-bezelled
-  gauges, a turn-and-bank with its slip ball, a compass with a swinging card,
-  warning lamps that glow, and the chart and logbook boards on brackets. It is
-  drawn in its own pass after the world, over a cleared depth buffer, into the
-  same HDR target, lit by the world's sun and sky turned into the aircraft's
-  frame, with its own shadow map (the wing shades the cowling) and sky
-  reflections. Static parts are baked into one mesh per material and the
-  dials share an atlas, so it draws in a few dozen calls. Bird strikes and
-  rain are painted on the windscreen, dents and oil on the cowling. What no
-  real cockpit has — guidance, popups, the scarf — stays in the 2D layer
-  (`hud.js`).
+- **The cockpit** (`cockpit.js`) is the open cockpit of a modern aerobatic
+  single-seater, as 3D geometry in metres round the pilot's eye: a glossy
+  composite nose in a red sunburst livery with a pointed spinner, a tinted
+  wind deflector, a carbon-fibre panel under a matte glare shield, and low
+  symmetric-section wings. The panel carries an attitude display (horizon,
+  pitch ladder, bank scale, speed and altitude tapes, heading), a moving map
+  with the course in GPS magenta, the run page (score, rings, sector,
+  airframe), a G-meter with max and min tell-tales, and LED annunciators on
+  the glare shield. It is drawn in its own pass after the world, over a
+  cleared depth buffer, into the same HDR target, lit by the world's sun and
+  sky turned into the aircraft's frame, with its own shadow map and sky
+  reflections. Static parts are baked into one mesh per material, so it draws
+  in a few dozen calls; the screens are canvases redrawn at their own rates.
+  Bird strikes and rain land on the deflector, dents and oil on the nose.
+  What no real cockpit has — guidance, popups, the slipstream — stays in the
+  2D layer (`hud.js`).
 
 Measured cost is under 0.5 ms of JavaScript per frame; on an Intel Iris Xe the
-whole frame takes about 8.5 ms at 1280 x 720 on the HIGH tier.
+whole frame takes about 9.5 ms at 1280 x 720 on the HIGH tier.
 
 ## Development
 
