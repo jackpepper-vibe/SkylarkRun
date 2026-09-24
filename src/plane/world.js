@@ -14,7 +14,8 @@ import { applyWeather } from '../weather.js';
 import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } from '../util.js';
 import { scene, renderer } from '../view.js';
 import { CANOPY_H, PR, VIEW } from './config.js';
-import { TODS, Sky } from './sky.js';
+import { SHADOW, TODS, Sky } from './sky.js';
+import { Models } from './models.js';
 import { THEMES, TH, setTerrainTheme, af, baseH, groundH, landuse, isWood, onField, clearanceH,
          CELL, KIND, CROP, cellPlan, Terrain } from './terrain.js';
 import { G, Game, P, S, TO, popup } from '../state.js';
@@ -148,64 +149,75 @@ const SCX=17, SCZ=26;
 const Scatter={
   cx:1e9, cz:1e9,
   m:{}, n:{}, plan:{},
-  caps:{trunk:1600,canopy:1600,bush:1000,rock:320,wall:220,roof:220,hay:220,shade:900},
+  // instances per kind, near the aircraft and beyond it
+  caps:{oak0:[420,700],oak1:[420,700],poplar:[140,200],pine0:[360,560],pine1:[360,560],
+        hedge:[1800,3800],cottage:[30,70],farmhouse:[30,70],barn:[40,90],redBarn:[40,90],
+        shed:[30,80],rock:[120,220],hay:[160,220]},
+  shadeCap:2400,
+  near:{x0:0,x1:0,z0:0,z1:0},
   dummy:new THREE.Object3D(), col:new THREE.Color(),
+  // Every kind is two instanced meshes: `near`, inside the sun's shadow box,
+  // at full detail and casting shadows, and `far`, cheaper and not casting.
   build(){
-    const mk=(geo,mat,cap)=>{
-      const m=new THREE.InstancedMesh(geo,mat,cap);
+    const mat=new THREE.MeshLambertMaterial({vertexColors:true});
+    const mk=(key,geo,material,cap,shadow)=>{
+      const m=new THREE.InstancedMesh(geo,material,cap);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // created up front so the shader is built with per-instance colour
+      m.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(cap*3).fill(1),3);
+      m.instanceColor.setUsage(THREE.DynamicDrawUsage);
       m.frustumCulled=false;
-      scene.add(m); return m;
+      m.castShadow=shadow; m.receiveShadow=true;
+      m.count=0;
+      scene.add(m); this.m[key]=m; this.n[key]=0; return m;
     };
-    const trunkGeo=new THREE.CylinderGeometry(0.30,0.55,1,5); trunkGeo.translate(0,0.5,0);
-    const canopyGeo=new THREE.IcosahedronGeometry(1,0);
-    const bushGeo=new THREE.IcosahedronGeometry(1,0); bushGeo.scale(1,0.65,1); bushGeo.translate(0,0.6,0);
-    const rockGeo=new THREE.DodecahedronGeometry(1,0);
-    const wallGeo=new THREE.BoxGeometry(1,1,1); wallGeo.translate(0,0.5,0);
-    const roofGeo=new THREE.CylinderGeometry(0.72,0.72,1,3);
-    roofGeo.rotateX(Math.PI/2); roofGeo.rotateZ(Math.PI/2);   // gable ridge running along z
-    const hayGeo=new THREE.CylinderGeometry(1,1,1,10); hayGeo.rotateZ(Math.PI/2);
-    this.m.trunk =mk(trunkGeo, new THREE.MeshLambertMaterial({color:0x5a4030}),this.caps.trunk);
-    this.m.canopy=mk(canopyGeo,new THREE.MeshLambertMaterial({color:0xffffff}),this.caps.canopy);
-    this.m.bush  =mk(bushGeo,  new THREE.MeshLambertMaterial({color:0x3d6630}),this.caps.bush);
-    this.m.rock  =mk(rockGeo,  new THREE.MeshLambertMaterial({color:0x8a8478}),this.caps.rock);
-    this.m.wall  =mk(wallGeo,  new THREE.MeshLambertMaterial({color:0xffffff}),this.caps.wall);
-    this.m.roof  =mk(roofGeo,  new THREE.MeshLambertMaterial({color:0xffffff}),this.caps.roof);
-    this.m.hay   =mk(hayGeo,   new THREE.MeshLambertMaterial({color:0xc9a961}),this.caps.hay);
+    for(const k in this.caps){
+      mk(k,Models[k].near,mat,this.caps[k][0],true);
+      mk(k+"~",Models[k].far,mat,this.caps[k][1],false);
+    }
     const shadeGeo=new THREE.PlaneGeometry(1,1); shadeGeo.rotateX(-Math.PI/2);
-    this.m.shade=mk(shadeGeo,new THREE.MeshBasicMaterial({map:shadowTex,transparent:true,
-      opacity:0.34,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,
-      polygonOffsetUnits:-4}),this.caps.shade);
+    mk("shade",shadeGeo,new THREE.MeshBasicMaterial({map:shadowTex,transparent:true,
+      opacity:0.30,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,
+      polygonOffsetUnits:-4}),this.shadeCap,false);
+    this.m.shade.receiveShadow=false;
     this.m.shade.renderOrder=1;
   },
-  // a blob on the deck under something of this size, thrown away from the sun
-  shade(x,z,y,r,h){
-    this.put("shade",x+Shadows.offX(h),y+0.35,z+Shadows.offZ(h),
-             r*2,1,r*2*Shadows.stretch);
+  // Contact shade: the dark ground right under a thing, where skylight cannot
+  // reach. The sun's own shadow comes from the shadow map; this is ambient.
+  shade(x,z,y,r){
+    this.put("shade",x,y+0.35,z,r*2,1,r*2);
   },
   put(key,x,y,z,sx,sy,sz,ry,color){
-    const i=this.n[key];
-    if(i>=this.caps[key]) return;
     if(af.active&&onField(x,z)) return;      // keep the airfield mown and clear
+    if(key!=="shade"){
+      const nb=this.near;
+      if(!(x>nb.x0&&x<nb.x1&&z>nb.z0&&z<nb.z1)) key+="~";
+    }
+    const m=this.m[key], i=this.n[key];
+    if(i>=m.instanceMatrix.count) return;
     const d=this.dummy;
     d.position.set(x,y,z);
     d.rotation.set(0,ry||0,0);
     d.scale.set(sx,sy,sz);
     d.updateMatrix();
-    this.m[key].setMatrixAt(i,d.matrix);
-    if(color!==undefined&&this.m[key].setColorAt){
-      this.col.setHex(color); this.m[key].setColorAt(i,this.col);
-    }
+    m.setMatrixAt(i,d.matrix);
+    this.col.setHex(color===undefined?0xffffff:color);
+    m.setColorAt(i,this.col);
     this.n[key]=i+1;
   },
-  tree(x,z,r){
+  // Which tree grows here: the uplands run to pine, the lowlands to oak.
+  tree(x,z,r,hedgerow){
     const y=groundH(x,z);
     if(y<TH.water+1) return;
-    const s=0.75+r()*0.9;
-    this.put("trunk",x,y,z,s*1.1,4.2*s,s*1.1);
-    const cols=[0x2c5a2e,0x35662f,0x27522c,0x3f6b34,0x46703a];
-    this.put("canopy",x,y+4.0*s+2.4*s,z,3.0*s,3.6*s,3.0*s,r()*3,cols[(r()*5)|0]);
-    this.shade(x,z,y,3.4*s,6.4*s);
+    const upland=Game.curTheme===1, k=r();
+    let key;
+    if(hedgerow) key=k<0.22?"poplar":(k<0.61?"oak0":"oak1");
+    else if(upland) key=k<0.62?(k<0.31?"pine0":"pine1"):(k<0.81?"oak0":"oak1");
+    else key=k<0.12?(k<0.06?"pine0":"pine1"):(k<0.56?"oak0":"oak1");
+    const s=0.78+r()*0.55;
+    const tints=[0xffffff,0xecf4dc,0xfff6dc,0xe0ece0,0xf6fae6,0xd8e6d0];
+    this.put(key,x,y-0.3,z,s,s*(0.9+r()*0.25),s,r()*6.3,tints[(r()*tints.length)|0]);
+    this.shade(x,z,y,3.6*s);
   },
   // One cell of countryside, dressed from its plan. The plan (terrain.js)
   // decides what the field is and where its hedges and gate are — the ground
@@ -234,7 +246,7 @@ const Scatter={
         const n=3+Math.floor(r()*5), ry=p.angle;
         for(let i=0;i<n;i++){
           const x=bx+14+r()*67, z=bz+14+r()*67, y=groundH(x,z);
-          if(y>TH.water+1) this.put("hay",x,y+1.6,z,1.6,1.6,3.0,ry+(r()-0.5)*0.4);
+          if(y>TH.water+1) this.put("hay",x,y+0.75,z,1.4,0.8,0.8,ry+(r()-0.5)*0.4);
         }
       }
       if(r()<0.12) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
@@ -246,63 +258,73 @@ const Scatter={
         const x=bx+r()*CELL, z=bz+r()*CELL, y=groundH(x,z);
         if(y>TH.water+1){
           const s=1.2+r()*3.2;
-          this.put("rock",x,y+s*0.4,z,s,s*0.75,s*1.1,r()*3, r()<0.5?0x8a8478:0x9a9082);
+          this.put("rock",x,y+s*0.25,z,s,s*0.7,s*1.1,r()*3, r()<0.5?0xffffff:0xe8e2d8);
         }
       }
       if(r()<0.07) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
     }
   },
-  // a hedge along one edge of a cell, from its corner in direction (dx, dz),
-  // with a gap where the plan puts the gate
+  // A hedge along one edge of a cell, from its corner in direction (dx, dz),
+  // in two runs either side of the gate the plan puts in it.
   hedge(bx,bz,dx,dz,gate,r){
-    const hedgeCol=[0x335a28,0x2c5024,0x3c6330];
-    for(let i=0;i<10;i++){
-      const t=(i+0.5)/10*CELL;
-      if(Math.abs(t-gate*CELL)<5.5) continue;
-      const x=bx+dx*t, z=bz+dz*t, y=groundH(x,z);
-      if(y>TH.water+1) this.put("bush",x,y,z,2.4+r()*1.4,2.0+r()*1.2,2.0+r()*1.0,r()*3,hedgeCol[(r()*3)|0]);
+    const g0=gate*CELL-4.5, g1=gate*CELL+4.5;
+    for(const [t0,t1] of [[0,g0],[g1,CELL]]){
+      const n=Math.max(1,Math.round((t1-t0)/9));
+      const L=(t1-t0)/n;
+      for(let i=0;i<n;i++){
+        const t=t0+i*L;
+        const y=Math.min(groundH(bx+dx*t,bz+dz*t),groundH(bx+dx*(t+L),bz+dz*(t+L)));
+        if(y<TH.water+1) continue;
+        const tint=[0xffffff,0xeef4e2,0xf6f2dc][(r()*3)|0];
+        this.put("hedge",bx+dx*t,y-0.2,bz+dz*t,L,2.3+r()*0.9,2.4+r()*0.5,dz?-Math.PI/2:0,tint);
+      }
     }
   },
-  // an oak left standing in a hedge line
+  // an oak or a poplar left standing in a hedge line
   hedgerowTree(bx,bz,p,r){
     const t=(0.1+r()*0.8)*CELL;
-    if(p.hedgeN&&(r()<0.5||!p.hedgeW)) this.tree(bx+t,bz,r);
-    else if(p.hedgeW) this.tree(bx,bz+t,r);
+    if(p.hedgeN&&(r()<0.5||!p.hedgeW)) this.tree(bx+t,bz,r,true);
+    else if(p.hedgeW) this.tree(bx,bz+t,r,true);
   },
+  // A farmyard: the house, then barns and sheds squared round it.
   farmstead(x,z,r){
     const y=groundH(x,z);
     if(y<TH.water+2) return;
-    const walls=[0xe8dcc0,0xd8c8a8,0xc8b8a0,0xb08878];
-    const roofs=[0x8a3a2c,0x6a4436,0x5a5a58,0x7a4a30];
-    const n=2+Math.floor(r()*3);
-    for(let i=0;i<n;i++){
-      const ox=(r()-0.5)*46, oz=(r()-0.5)*46;
-      const bxp=x+ox, bzp=z+oz, by=groundH(bxp,bzp);
-      if(by<TH.water+2) continue;
-      const w=7+r()*8, d=9+r()*11, h=4.5+r()*3.5;
-      const ry=(r()<0.5?0:Math.PI/2)+(r()-0.5)*0.3;
-      this.put("wall",bxp,by,bzp,w,h,d,ry,walls[(r()*4)|0]);
-      this.put("roof",bxp,by+h+ (w*0.45), bzp, w*1.12, w*1.12, d*1.02, ry, roofs[(r()*4)|0]);
-      this.shade(bxp,bzp,by,Math.max(w,d)*0.62,h*1.3);
-    }
+    const face=(r()<0.5?0:Math.PI/2)+(r()-0.5)*0.12;
+    const cx=Math.cos(face), sz=Math.sin(face);
+    const place=(key,ox,oz,turn)=>{
+      const px=x+ox*cx+oz*sz;
+      const pz=z-ox*sz+oz*cx;
+      const py=groundH(px,pz);
+      if(py<TH.water+2) return;
+      const k=0.92+r()*0.16;
+      this.put(key,px,py-0.25,pz,k,k,k,face+(turn||0),[0xffffff,0xf4f0e8,0xece8e0][(r()*3)|0]);
+      this.shade(px,pz,py,9*k);
+    };
+    place(r()<0.55?"cottage":"farmhouse",0,0);
+    place(r()<0.6?"barn":"redBarn",-4,-19,0);
+    if(r()<0.7) place("shed",14,-8,Math.PI/2);
+    if(r()<0.4) place(r()<0.5?"barn":"redBarn",18,-26,Math.PI/2);
   },
   rebuild(){
     for(const k in this.m) this.n[k]=0;
+    // the near set covers the shadow box (sky.js) plus a cell of slack, since
+    // the box slides with the aircraft between rebuilds
+    const nb=this.near;
+    const half=SHADOW.SIZE/2+CELL, zc=P.z-SHADOW.AHEAD;
+    nb.x0=P.x-half; nb.x1=P.x+half;
+    nb.z0=zc-half; nb.z1=zc+half;
     const gx0=Math.floor(P.x/CELL)-((SCX-1)>>1);
     const gz0=Math.floor(P.z/CELL)-(SCZ-3);
     for(let i=0;i<SCX;i++)
       for(let j=0;j<SCZ;j++)
         this.cell(gx0+i, gz0+j);
-    // park the unused instances out of sight
-    const d=this.dummy;
-    d.position.set(0,-9999,0); d.rotation.set(0,0,0); d.scale.set(0.001,0.001,0.001);
-    d.updateMatrix();
+    // draw only the instances this rebuild placed
     for(const k in this.m){
       const mesh=this.m[k];
-      for(let i=this.n[k];i<this.caps[k];i++) mesh.setMatrixAt(i,d.matrix);
+      mesh.count=this.n[k];
       mesh.instanceMatrix.needsUpdate=true;
-      if(mesh.instanceColor) mesh.instanceColor.needsUpdate=true;
-      mesh.count=this.caps[k];
+      mesh.instanceColor.needsUpdate=true;
     }
   },
   update(){

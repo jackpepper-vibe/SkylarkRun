@@ -11,8 +11,11 @@ import './atmosphere.js';
 const glc=document.getElementById("gl"), hudc=document.getElementById("hud");
 const hctx=hudc.getContext("2d");
 let W=0,H=0,DPR=1;
-const renderer=new THREE.WebGLRenderer({canvas:glc,antialias:true});
+const renderer=new THREE.WebGLRenderer({canvas:glc,antialias:false});
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
+// the sun casts real shadows near the aircraft (see sky.js for the rig)
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.toneMappingExposure=1.0;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 const scene=new THREE.Scene();

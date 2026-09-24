@@ -106,7 +106,8 @@ function makeRTs(){
   const w=Math.max(8,Math.floor(W*DPR)), h=Math.max(8,Math.floor(H*DPR));
   const hdr={type:THREE.HalfFloatType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,
              depthBuffer:false};
-  rtScene=new THREE.WebGLRenderTarget(w,h,Object.assign({},hdr,{depthBuffer:true,samples:4}));
+  rtScene=new THREE.WebGLRenderTarget(w,h,Object.assign({},hdr,{depthBuffer:true,samples:4,
+    format:THREE.RGBFormat,type:THREE.UnsignedInt101111Type}));
   for(let i=1;i<=3;i++){
     const lw=Math.max(4,w>>i), lh=Math.max(4,h>>i);
     pyramid.push({a:new THREE.WebGLRenderTarget(lw,lh,hdr), b:new THREE.WebGLRenderTarget(lw,lh,hdr)});

@@ -301,7 +301,9 @@ window.SKY={
   groundAt:(x,z)=>Craft.debug.groundAt(x,z),
   drawHUD:t=>Craft.drawCockpit(t),
   setMuted(m){ setMuted(m); },
-  fx(on){ Game.postOn=on; }
+  fx(on){ Game.postOn=on; },
+  /** The renderer and scene, for profiling tools that switch features off. */
+  gfx:()=>({ renderer, scene, camera })
 };
 
 // ---------- PWA manifest (inline) ----------

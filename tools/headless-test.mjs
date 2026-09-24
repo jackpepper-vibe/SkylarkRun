@@ -201,7 +201,10 @@ if (!storage) {
   await page.waitForTimeout(2000);
   const before = errors.length;
   await page.locator('#startBtn').click();
-  await page.waitForTimeout(2500);
+  // Wait for the sector to start rather than for a fixed time: the software
+  // renderer draws a couple of frames a second here, and the start runs on a
+  // timer that queues behind them. A broken button never gets there at all.
+  await page.waitForFunction(() => window.SKY.state() !== 0, null, { timeout: 20000 }).catch(() => {});
   const flying = await page.evaluate(() => window.SKY.state());
   check('clicking Fly starts a sector', flying !== 0 && errors.length === before,
     'state ' + flying +

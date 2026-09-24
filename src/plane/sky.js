@@ -22,6 +22,28 @@ const sunLight=new THREE.DirectionalLight(0xfff2d0,1.35*Math.PI);
 sunLight.position.set(700,900,-900);
 scene.add(sunLight);
 scene.add(sunLight.target);
+
+// ---------- the sun's shadow ----------
+// One map, 760 m square, laid over the ground ahead of the aircraft where
+// shadows are big enough to read; beyond it the contact shade under each
+// object carries on. The box is snapped to whole shadow texels in the light's
+// own frame, so as it slides with the aircraft the shadow edges hold still
+// instead of crawling.
+/** The shadow box: its size, map resolution and how far ahead it is centred. */
+const SHADOW={ SIZE:760, RES:2048, AHEAD:260 };
+const SHADOW_SIZE=SHADOW.SIZE, SHADOW_RES=SHADOW.RES, SHADOW_AHEAD=SHADOW.AHEAD;
+sunLight.castShadow=true;
+sunLight.shadow.mapSize.set(SHADOW_RES,SHADOW_RES);
+{
+  const c=sunLight.shadow.camera;
+  c.left=-SHADOW_SIZE/2; c.right=SHADOW_SIZE/2; c.top=SHADOW_SIZE/2; c.bottom=-SHADOW_SIZE/2;
+  c.near=10; c.far=4000;
+  c.updateProjectionMatrix();
+}
+sunLight.shadow.bias=-0.0004;
+sunLight.shadow.normalBias=0.6;
+sunLight.shadow.radius=2.5;
+const _right=new THREE.Vector3(), _up=new THREE.Vector3(), _ctr=new THREE.Vector3();
 const fillLight=new THREE.DirectionalLight(0x88a8d8,0.22*Math.PI);
 fillLight.position.set(-600,300,700);
 scene.add(fillLight);
@@ -121,9 +143,17 @@ const Sky={
   follow(x,y,z,t){
     sky.position.set(x,y,z);
     skyUniforms.time.value=t*0.001;
-    sunLight.target.position.set(x,0,z);
-    sunLight.position.set(x+SUNDIR.x*1400, SUNDIR.y*1400, z+SUNDIR.z*1400);
+    // centre the shadow box ahead, then snap it to the texel grid in light space
+    _ctr.set(x,0,z-SHADOW_AHEAD);
+    _right.set(0,1,0).cross(SUNDIR).normalize();
+    _up.copy(SUNDIR).cross(_right).normalize();
+    const texel=SHADOW_SIZE/SHADOW_RES;
+    const u=Math.round(_ctr.dot(_right)/texel)*texel, v=Math.round(_ctr.dot(_up)/texel)*texel;
+    const w=_ctr.dot(SUNDIR);
+    _ctr.copy(_right).multiplyScalar(u).addScaledVector(_up,v).addScaledVector(SUNDIR,w);
+    sunLight.target.position.copy(_ctr);
+    sunLight.position.copy(_ctr).addScaledVector(SUNDIR,1800);
   }
 };
 
-export { TODS, Sky, hemiLight, sunLight };
+export { SHADOW, TODS, Sky, hemiLight, sunLight };

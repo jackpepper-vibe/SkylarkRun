@@ -2,6 +2,10 @@
  * Posed captures on the real GPU, for judging the look of the game.
  *
  *   node tools/look.mjs [outDir] [pose ...]
+ *   node tools/look.mjs --perf        frame time in the cruise pose, vsync off
+ *   PROBE="<js>" node tools/look.mjs --perf
+ *                                     ...after running <js> in the page, to price
+ *                                     a feature by switching it off (see SKY.gfx)
  *
  * The shared shot tool renders WebGL on SwiftShader, which is slow and not what
  * a player sees. This launches Chromium on the machine's GPU through ANGLE and
@@ -16,8 +20,10 @@ const PLAYWRIGHT = 'file:///C:/Claude/Tools/shot/node_modules/playwright/index.m
 const { chromium } = await import(PLAYWRIGHT);
 
 const ROOT = process.cwd();
-const OUT = path.resolve(process.argv[2] || 'shots/look');
-const ONLY = new Set(process.argv.slice(3));
+const PERF = process.argv.includes('--perf');
+const args = process.argv.slice(2).filter(a => a !== '--perf');
+const OUT = path.resolve(args[0] || 'shots/look');
+const ONLY = new Set(PERF ? ['__none__'] : args.slice(1));
 fs.mkdirSync(OUT, { recursive: true });
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript',
@@ -40,7 +46,8 @@ await new Promise(r => server.listen(0, '127.0.0.1', r));
 const url = 'http://127.0.0.1:' + server.address().port + '/index.html';
 
 const browser = await chromium.launch({
-  args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
+  args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist',
+         ...(PERF ? ['--disable-gpu-vsync', '--disable-frame-rate-limit'] : [])] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on('console', m => { if (m.type() === 'error') console.log('console error:', m.text()); });
 page.on('pageerror', e => console.log('PAGE ERROR:', e.message));
@@ -79,6 +86,23 @@ const POSES = [
   ['s4',       async () => { await nextSector(); await flyOn(250); }],
   ['s5',       async () => { await nextSector(); await flyOn(250); }],
 ];
+
+if (PERF) {
+  // Fly the cruise pose, then count frames the page actually presents; the
+  // simulation is held so every frame renders the same kind of scene.
+  await POSES[1][1](); await POSES[2][1](); await POSES[3][1]();
+  await page.evaluate(() => window.SKY.hold(true));
+  if (process.env.PROBE) await page.evaluate(process.env.PROBE);
+  await page.waitForTimeout(1500);
+  const ms = await page.evaluate(() => new Promise(done => {
+    let n = 0; const t0 = performance.now();
+    const tick = () => { n++; if (performance.now() - t0 < 4000) requestAnimationFrame(tick);
+                         else done((performance.now() - t0) / n); };
+    requestAnimationFrame(tick);
+  }));
+  console.log(`cruise: ${ms.toFixed(2)} ms/frame (${(1000 / ms).toFixed(0)} fps) at 1280x720`);
+  await browser.close(); server.close(); process.exit(0);
+}
 
 for (const [name, pose] of POSES) {
   await pose();
