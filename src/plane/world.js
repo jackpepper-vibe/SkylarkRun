@@ -14,7 +14,7 @@ import { applyWeather } from '../weather.js';
 import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } from '../util.js';
 import { scene, renderer } from '../view.js';
 import { CANOPY_H, PR, VIEW } from './config.js';
-import { TODS, hemiLight, sky, skyTexs, sunGlow, sunLight } from './sky.js';
+import { TODS, Sky } from './sky.js';
 import { G, Game, P, S, TO, popup } from '../state.js';
 import { chime, radioCall, thud } from '../audio.js';
 
@@ -49,14 +49,16 @@ const ridges=[];
 function addRidge(tex,dist,h,alpha,fac){
   const m=new THREE.Mesh(new THREE.PlaneGeometry(dist*5.0,h),
     new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:alpha,
-      depthWrite:false,fog:false}));
+      depthWrite:false}));
   m.renderOrder=-1;
   m.userData={dist,h,fac};
   scene.add(m); ridges.push(m);
   return m;
 }
-addRidge(makeRidgeTexture(21,"#7f9ab4",true), 3600, 620, 0.55, 0.90);
-addRidge(makeRidgeTexture(77,"#6d8a9e",false),2700, 430, 0.72, 0.85);
+// Painted in the hills' own colour; the atmosphere, not the paint, is what
+// turns them blue with distance.
+addRidge(makeRidgeTexture(21,"#5d7488",true), 3600, 620, 1.0, 0.90);
+addRidge(makeRidgeTexture(77,"#4f6a58",false),2700, 430, 1.0, 0.85);
 
 // ---------- sector themes: the shape of the land ----------
 const THEMES=[
@@ -169,14 +171,12 @@ const Terrain={
       const k=clamp((h-TH.amp*1.02)/(TH.amp*0.5),0,1)*0.85;
       c=[lerp(c[0],0.92,k),lerp(c[1],0.94,k),lerp(c[2],0.97,k)];
     }
-    const g=TODS[Game.curTod].grass, n=0.93+hash2(Math.floor(x/29),Math.floor(z/29))*0.14;
-    // deepen and saturate: ACES plus the bloom pass lifts everything a stop
-    const SAT=1.42, GAIN=0.80;
-    let r0=c[0]*g*n, g0=c[1]*g*n, b0=c[2]*g*n;
-    const lum=(r0+g0+b0)/3;
-    col[0]=clamp((lum+(r0-lum)*SAT)*GAIN,0,1);
-    col[1]=clamp((lum+(g0-lum)*SAT)*GAIN,0,1);
-    col[2]=clamp((lum+(b0-lum)*SAT)*GAIN,0,1);
+    // the palette above is authored in display (sRGB) values; lighting works
+    // in linear, so convert rather than hand-tune a compensating gain
+    const n=0.93+hash2(Math.floor(x/29),Math.floor(z/29))*0.14;
+    col[0]=Math.pow(clamp(c[0]*n,0,1),2.2);
+    col[1]=Math.pow(clamp(c[1]*n,0,1),2.2);
+    col[2]=Math.pow(clamp(c[2]*n,0,1),2.2);
   },
   fill(t,ix,iz){
     const ox=ix*TILE, oz=iz*TILE;
@@ -1334,15 +1334,10 @@ function applyTheme(lvl){
   TH=THEMES[Game.curTheme];
   Game.curTod=(lvl-1)%TODS.length;
   const td=TODS[Game.curTod];
-  sky.material.map=skyTexs[Game.curTod]; sky.material.needsUpdate=true;
-  scene.fog.color.set(td.fog);
-  sunLight.color.set(td.sunC); sunLight.intensity=td.sunI*Math.PI;
-  hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG); hemiLight.intensity=td.hemiI*Math.PI;
-  renderer.toneMappingExposure=td.exp;
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
+  Sky.apply(td);
+  renderer.toneMappingExposure=td.exp;
   Sun.ray=td.ray;
-  sunLight.position.copy(SUNDIR).multiplyScalar(1400);
-  sunGlow.material.opacity=td.glowO;
   Shadows.sun();
   applyWeather(lvl);
 }

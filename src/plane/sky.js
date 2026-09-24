@@ -3,94 +3,127 @@
 // The plane's sky, loaded only with the plane. It adds daylight to the shared
 // scene, so the city must never pull it in.
 //
-// Every sector shifts the sun, so the whole palette — light colour, fog, the
-// dome gradient and the glow around the disc — is driven from one table of
-// times of day rather than set per scene.
+// Every sector shifts the sun, so the whole palette — light colours, the air,
+// the dome and the sun's glow — is driven from one table of times of day
+// rather than set per scene. The dome is a shader that evaluates the same haze
+// model as every fogged material (see atmosphere.js), so at the horizon the
+// sky is exactly the colour the land fades into.
 import * as THREE from 'three';
 import { SUNDIR } from '../sun.js';
 import { scene } from '../view.js';
-import { hash } from '../util.js';
+import { Atmosphere } from '../atmosphere.js';
 
 // ---------- lights ----------
-const hemiLight=new THREE.HemisphereLight(0xbcd8ee,0x4a5a34,0.95);
+// Intensities in the table are in the old, pre-physical units; the physical
+// light model divides diffuse by pi, so they are scaled back up where applied.
+const hemiLight=new THREE.HemisphereLight(0xbcd8ee,0x4a5a34,0.95*Math.PI);
 scene.add(hemiLight);
-const sunLight=new THREE.DirectionalLight(0xfff2d0,1.35);
+const sunLight=new THREE.DirectionalLight(0xfff2d0,1.35*Math.PI);
 sunLight.position.set(700,900,-900);
 scene.add(sunLight);
-const fillLight=new THREE.DirectionalLight(0x88a8d8,0.30);
+scene.add(sunLight.target);
+const fillLight=new THREE.DirectionalLight(0x88a8d8,0.22*Math.PI);
 fillLight.position.set(-600,300,700);
 scene.add(fillLight);
 
 // ---------- time of day: every sector shifts the sun ----------
+//   zenith / horizon   the clear sky overhead and just above the haze
+//   haze               the air's colour with nothing behind it (horizon, fog)
+//   glow               the sun's in-scatter colour through that air
+//   density / falloff  haze per metre at the ground, and its scale height
 const TODS=[
- {name:"MORNING",  sky:["#3f79c4","#7db2e4","#c3dcf0","#f2e6cc"], fog:0xc6dcf0, sunC:0xfff0cc, sunI:1.30,
-  hemiS:0xbcd8ee, hemiG:0x4a5a34, hemiI:0.95, exp:1.02, dir:[0.55,0.42,-0.72], glowO:0.55, ray:0.85, grass:0.98},
- {name:"MIDDAY",   sky:["#2b6fc6","#69a9e2","#b6d6ef","#e6f0f8"], fog:0xd2e6f4, sunC:0xffffff, sunI:1.45,
-  hemiS:0xcfe4f4, hemiG:0x5a6a3c, hemiI:1.05, exp:1.00, dir:[0.20,0.86,-0.47], glowO:0.42, ray:0.55, grass:1.06},
- {name:"AFTERNOON",sky:["#3a72b8","#79aada","#c9d6e4","#f0dcbc"], fog:0xd8dcdc, sunC:0xffe9c0, sunI:1.30,
-  hemiS:0xc4d4e4, hemiG:0x54603a, hemiI:0.92, exp:1.03, dir:[-0.52,0.50,-0.69], glowO:0.60, ray:0.90, grass:1.00},
- {name:"GOLDEN",   sky:["#2f5f9e","#6f92c4","#dfae82","#ffd8a2"], fog:0xe0c49a, sunC:0xffc884, sunI:1.20,
-  hemiS:0xd8bc98, hemiG:0x4a4028, hemiI:0.85, exp:1.06, dir:[-0.72,0.18,-0.67], glowO:0.75, ray:1.10, grass:0.94},
+ {name:"MORNING",  zenith:"#3a74c2", horizon:"#a9cdea", haze:"#c9dcec", glow:"#ffe2b0",
+  density:0.00040, falloff:420, sunC:0xfff0d6, sunI:1.55, hemiS:0xb4d0ec, hemiG:0x56603c, hemiI:0.62,
+  exp:1.00, dir:[0.55,0.42,-0.72], ray:0.70},
+ {name:"MIDDAY",   zenith:"#2a68c0", horizon:"#9ec6ea", haze:"#cfe0ee", glow:"#fff4dc",
+  density:0.00032, falloff:460, sunC:0xffffff, sunI:1.70, hemiS:0xc4dcf2, hemiG:0x5e6a40, hemiI:0.66,
+  exp:0.96, dir:[0.20,0.86,-0.47], ray:0.45},
+ {name:"AFTERNOON",zenith:"#3470b8", horizon:"#b0cce4", haze:"#d6dcdc", glow:"#ffdcaa",
+  density:0.00044, falloff:420, sunC:0xffecc8, sunI:1.55, hemiS:0xbccce0, hemiG:0x58603c, hemiI:0.60,
+  exp:1.00, dir:[-0.52,0.50,-0.69], ray:0.75},
+ {name:"GOLDEN",   zenith:"#2c5896", horizon:"#d8b690", haze:"#e2c6a0", glow:"#ffb468",
+  density:0.00052, falloff:380, sunC:0xffc88a, sunI:1.45, hemiS:0xb8b0a8, hemiG:0x4e4430, hemiI:0.55,
+  exp:1.04, dir:[-0.72,0.18,-0.67], ray:0.95},
 ];
+
 // ---------- sky dome ----------
-function makeSkyTexture(tod){
-  const td=TODS[tod];
-  const c=document.createElement("canvas"); c.width=1024; c.height=512;
-  const x=c.getContext("2d");
-  const g=x.createLinearGradient(0,0,0,512);
-  g.addColorStop(0,td.sky[0]); g.addColorStop(0.34,td.sky[1]);
-  g.addColorStop(0.62,td.sky[2]); g.addColorStop(1,td.sky[3]);
-  x.fillStyle=g; x.fillRect(0,0,1024,512);
-  // high cirrus streaks
-  x.globalAlpha=0.30;
-  x.fillStyle="#ffffff";
-  for(let i=0;i<70;i++){
-    const cy=hash(i*3.7+tod)*190, cx=hash(i*5.1+tod)*1024;
-    const w=60+hash(i*7.3)*230, h=2+hash(i*9.1)*5;
-    x.beginPath(); x.ellipse(cx,cy,w,h,0,0,7); x.fill();
-  }
-  // cumulus band sitting on the horizon
-  x.globalAlpha=1;
-  for(let i=0;i<46;i++){
-    const cx=hash(i*11.3+tod*3)*1024, cy=250+hash(i*13.7+tod)*140;
-    const sc=0.5+hash(i*17.1)*1.4;
-    for(let p=0;p<7;p++){
-      const px=cx+(hash(i*19+p)-0.5)*130*sc, py=cy+(hash(i*23+p)-0.5)*26*sc;
-      const r=(14+hash(i*29+p)*26)*sc;
-      const grd=x.createRadialGradient(px,py-r*0.25,r*0.15,px,py,r);
-      grd.addColorStop(0,"rgba(255,255,255,0.95)");
-      grd.addColorStop(0.55,"rgba(246,248,252,0.7)");
-      grd.addColorStop(1,"rgba(214,226,240,0)");
-      x.fillStyle=grd; x.beginPath(); x.arc(px,py,r,0,7); x.fill();
+const skyUniforms=Object.assign({
+  zenith:{value:new THREE.Color()}, horizon:{value:new THREE.Color()},
+  time:{value:0}, cloudCover:{value:0.5}
+}, Atmosphere.uniforms);
+
+const skyMat=new THREE.ShaderMaterial({
+  uniforms:skyUniforms,
+  vertexShader:`
+    varying vec3 vDir;
+    void main(){
+      vDir=position;
+      vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+      gl_Position=p.xyww;                                   // pinned to the far plane
+    }`,
+  fragmentShader:`
+    varying vec3 vDir;
+    uniform vec3 zenith,horizon;
+    uniform float time,cloudCover;
+    ${Atmosphere.glsl}
+    float h21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+    float vn(vec2 p){
+      vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);
     }
-  }
-  const t=new THREE.CanvasTexture(c);
-  t.colorSpace=THREE.SRGBColorSpace;
-  return t;
-}
-const skyTexs=[0,1,2,3].map(makeSkyTexture);
-const sky=new THREE.Mesh(
-  new THREE.SphereGeometry(5200,32,20),
-  new THREE.MeshBasicMaterial({map:skyTexs[0],side:THREE.BackSide,fog:false,depthWrite:false})
-);
-sky.rotation.y=Math.PI*0.15;
+    float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=vn(p)*a; p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }
+    void main(){
+      vec3 d=normalize(vDir);
+      float up=max(d.y,0.0);
+      vec3 col=mix(horizon,zenith,pow(up,0.42));
+      // high cirrus, drawn on a plane far overhead and stretched along the wind
+      if(d.y>0.0){
+        vec2 q=d.xz/(d.y+0.06);
+        vec2 w=vec2(q.x*0.9,q.y*2.6)+vec2(time*0.004,0.0);
+        float c=fbm(w*1.3)*0.7+fbm(w*4.1+3.0)*0.3;
+        float m=smoothstep(0.62-cloudCover*0.18,0.95,c)*smoothstep(0.02,0.30,d.y);
+        vec3 lit=mix(horizon,vec3(1.0),0.75)+hazeSun*0.20;
+        col=mix(col,lit,m*0.55);
+      }
+      // The gradient already is the air overhead; only toward the horizon does
+      // the sky thicken into the haze the land fades into. At the horizon it
+      // is exactly hazeInscatter, which is what distant geometry converges on.
+      float band=exp(-max(d.y,0.0)*14.0);
+      col=mix(col,hazeInscatter(d),band);
+      // the sun: a hot disc and a tight corona, both well over white so they bloom
+      float mu=dot(d,hazeSunDir);
+      col+=hazeSun*(smoothstep(0.99955,0.99975,mu)*38.0+pow(max(mu,0.0),900.0)*5.0+pow(max(mu,0.0),90.0)*0.5);
+      gl_FragColor=vec4(col,1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+  side:THREE.BackSide, depthWrite:false, depthTest:true, fog:false
+});
+const sky=new THREE.Mesh(new THREE.SphereGeometry(5200,48,24),skyMat);
 sky.renderOrder=-2;
+sky.frustumCulled=false;
 scene.add(sky);
 
-// ---------- sun disc + haze ----------
-const sunGlow=(()=>{
-  const c=document.createElement("canvas"); c.width=128; c.height=128;
-  const x=c.getContext("2d");
-  const g=x.createRadialGradient(64,64,2,64,64,64);
-  g.addColorStop(0,"rgba(255,255,244,1)");
-  g.addColorStop(0.12,"rgba(255,246,214,0.85)");
-  g.addColorStop(0.42,"rgba(255,226,164,0.28)");
-  g.addColorStop(1,"rgba(255,220,160,0)");
-  x.fillStyle=g; x.fillRect(0,0,128,128);
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
-    blending:THREE.AdditiveBlending,depthWrite:false,fog:false,opacity:0.55}));
-  sp.scale.set(1500,1500,1);
-  scene.add(sp); return sp;
-})();
+/** The sky and lights for one time of day. */
+const Sky={
+  mesh:sky,
+  apply(td){
+    skyUniforms.zenith.value.set(td.zenith);
+    skyUniforms.horizon.value.set(td.horizon);
+    Atmosphere.set({haze:td.haze, sun:td.glow, density:td.density, falloff:td.falloff});
+    sunLight.color.set(td.sunC); sunLight.intensity=td.sunI*Math.PI;
+    hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG);
+    hemiLight.intensity=td.hemiI*Math.PI;
+  },
+  /** Thicker weather means more cirrus and a greyer dome. */
+  setCover(k){ skyUniforms.cloudCover.value=k; },
+  /** The dome and the sun's light ride with the aircraft. */
+  follow(x,y,z,t){
+    sky.position.set(x,y,z);
+    skyUniforms.time.value=t*0.001;
+    sunLight.target.position.set(x,0,z);
+    sunLight.position.set(x+SUNDIR.x*1400, SUNDIR.y*1400, z+SUNDIR.z*1400);
+  }
+};
 
-export { TODS, hemiLight, sky, skyTexs, sunGlow, sunLight };
+export { TODS, Sky, hemiLight, sunLight };

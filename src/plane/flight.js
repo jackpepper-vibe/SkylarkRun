@@ -11,7 +11,7 @@ import { S, Game, TO, P, G, dents, popups, popup } from '../state.js';
 import { readInput } from '../input.js';
 import { chime, crashSound, fuelBeep, obstacleBeep } from '../audio.js';
 import { camera, scene } from '../view.js';
-import { sky, sunGlow } from './sky.js';
+import { Sky } from './sky.js';
 import { SUNDIR } from '../sun.js';
 import { TODS } from './sky.js';
 import { Clouds } from '../clouds.js';
@@ -362,8 +362,7 @@ export const Plane = {
    *  sun glow and the parallax ridges all sit relative to the cockpit. */
   rigWorld(){
     Shadows.update();
-    sky.position.set(P.x,0,P.z);
-    sunGlow.position.set(P.x+SUNDIR.x*4000, SUNDIR.y*4000, P.z+SUNDIR.z*4000);
+    Sky.follow(P.x,P.y,P.z,performance.now());
     for(const r of ridges){
       const u=r.userData;
       r.position.set(P.x*u.fac, u.h*0.30+TH.amp*0.5, P.z-u.dist);

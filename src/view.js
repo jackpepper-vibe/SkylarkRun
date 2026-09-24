@@ -4,6 +4,7 @@
 // module reads them as live bindings and sees the current size without a
 // setter or a rename. The HUD is a plain 2D canvas laid over the GL one.
 import * as THREE from 'three';
+import './atmosphere.js';
 
 
 // ---------- canvases / three ----------
@@ -15,7 +16,9 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.0;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 const scene=new THREE.Scene();
-scene.fog=new THREE.Fog(0xbcd8ee,800,3400);
+// The Fog object only switches the fog chunks on for every material; what they
+// compute is the height haze in atmosphere.js, which ignores near and far.
+scene.fog=new THREE.Fog(0xbcd8ee,1,2);
 const camera=new THREE.PerspectiveCamera(72,1,0.5,9000);
 camera.rotation.order="YXZ";
 function resize(){

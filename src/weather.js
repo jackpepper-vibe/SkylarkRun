@@ -8,6 +8,7 @@ import { scene } from './view.js';
 import { Game, P } from './state.js';
 import { setRain } from './audio.js';
 import { Clouds, weatherCloudAlpha } from './clouds.js';
+import { Atmosphere } from './atmosphere.js';
 
 // ---------- weather ----------
 const WEATHERS=["CLEAR","BREEZY","SHOWERS","THERMALS"];
@@ -48,8 +49,8 @@ function applyWeather(lvl){
   rain.geometry.attributes.position.needsUpdate=true;
   rain.visible=Game.weather===2;
   setRain(Game.weather===2);
-  scene.fog.far=Game.weather===2?2400:(Game.weather===3?2900:3400);
-  scene.fog.near=Game.weather===2?500:800;
+  // showers close the distance right in; thermals leave a summer haze
+  Atmosphere.setWeather(Game.weather===2?1.9:(Game.weather===3?1.3:1.0));
   for(const c of Clouds.list) c.sp.material.opacity=(0.55+Math.random()*0.4)*weatherCloudAlpha();
 }
 
