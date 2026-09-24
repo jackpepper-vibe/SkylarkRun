@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { SUNDIR } from '../sun.js';
 import { scene } from '../view.js';
 import { Atmosphere } from '../atmosphere.js';
+import { Clouds } from '../clouds.js';
 
 // ---------- lights ----------
 // Intensities in the table are in the old, pre-physical units; the physical
@@ -44,6 +45,7 @@ sunLight.shadow.bias=-0.0004;
 sunLight.shadow.normalBias=0.6;
 sunLight.shadow.radius=2.5;
 const _right=new THREE.Vector3(), _up=new THREE.Vector3(), _ctr=new THREE.Vector3();
+const _sun=new THREE.Color(), _top=new THREE.Color(), _low=new THREE.Color(), _hz=new THREE.Color();
 const fillLight=new THREE.DirectionalLight(0x88a8d8,0.22*Math.PI);
 fillLight.position.set(-600,300,700);
 scene.add(fillLight);
@@ -129,6 +131,7 @@ scene.add(sky);
 /** The sky and lights for one time of day. */
 const Sky={
   mesh:sky,
+  uniforms:skyUniforms,
   apply(td){
     skyUniforms.zenith.value.set(td.zenith);
     skyUniforms.horizon.value.set(td.horizon);
@@ -136,6 +139,11 @@ const Sky={
     sunLight.color.set(td.sunC); sunLight.intensity=td.sunI*Math.PI;
     hemiLight.color.set(td.hemiS); hemiLight.groundColor.set(td.hemiG);
     hemiLight.intensity=td.hemiI*Math.PI;
+    // the clouds are lit by the same sun and sky, in their own units
+    _sun.set(td.sunC).multiplyScalar(td.sunI*0.72);
+    _top.set(td.zenith).lerp(_hz.set(td.haze),0.35).multiplyScalar(1.25);
+    _low.set(td.haze).multiplyScalar(0.72);
+    Clouds.setLight(_sun,_top,_low);
   },
   /** Thicker weather means more cirrus and a greyer dome. */
   setCover(k){ skyUniforms.cloudCover.value=k; },

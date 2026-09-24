@@ -1188,6 +1188,7 @@ function applyTheme(lvl){
   Sun.ray=td.ray;
   Shadows.sun();
   applyWeather(lvl);
+  Sky.setCover(Game.weather===2?0.95:(Game.weather===3?0.6:0.4));
 }
 
 export { applyTheme, Airfield, Fuel, Haz, Rings, Scatter, Shadows, TH, THEMES, Terrain, af, burst, bursts, clearanceH, coursePathX, groundH, isWood, onField, ridges, updateBursts };

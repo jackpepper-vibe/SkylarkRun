@@ -15,11 +15,12 @@
 // lines at whatever resolution the screen has, anti-aliased by their own
 // screen-space frequency so nothing shimmers at a distance.
 import * as THREE from 'three';
-import { clamp, hash2, mulberry32, smooth, lerp, vnoise } from '../util.js';
+import { clamp, hash2, mulberry32, smooth, lerp, vnoise, tileableNoise } from '../util.js';
 import { scene, renderer } from '../view.js';
 import { Atmosphere } from '../atmosphere.js';
 import { CANOPY_H } from './config.js';
 import { P } from '../state.js';
+import { Water } from './water.js';
 
 // ---------- sector themes: the shape of the land ----------
 export const THEMES=[
@@ -146,41 +147,18 @@ const FieldMap={
 FieldMap.build();
 
 // ---------- detail noise: three tileable octaves, one per channel ----------
-// tileable value noise: the lattice wraps at `per`
-function noiseLattice(per,seed){
-  const a=new Float32Array(per*per);
-  const r=mulberry32(seed);
-  for(let i=0;i<a.length;i++) a[i]=r();
-  return a;
-}
-function latticeAt(a,per,i,j){
-  return a[(((j%per)+per)%per)*per+(((i%per)+per)%per)];
-}
-function sampleLattice(a,per,x,y){
-  const xi=Math.floor(x);
-  const yi=Math.floor(y);
-  const u=smooth(x-xi);
-  const v=smooth(y-yi);
-  return lerp(lerp(latticeAt(a,per,xi,yi),latticeAt(a,per,xi+1,yi),u),
-              lerp(latticeAt(a,per,xi,yi+1),latticeAt(a,per,xi+1,yi+1),u),v);
-}
-// octaves `from`..`to` of a tileable fbm over an N-texel square
-function tileFbm(oct,N,x,y,from,to){
-  let sum=0;
-  let amp=0.5;
-  let tot=0;
-  for(let k=from;k<to;k++){
-    sum+=sampleLattice(oct[k][1],oct[k][0],x*oct[k][0]/N,y*oct[k][0]/N)*amp;
-    tot+=amp;
-    amp*=0.55;
-  }
-  return sum/tot;
-}
 function makeDetailTexture(){
   const N=256;
   const img=new Uint8Array(N*N*4);
-  const oct=[[4,11],[8,23],[16,37],[32,53],[64,71]].map(([p,sd])=>[p,noiseLattice(p,sd)]);
-  const fbm=(x,y,from,to)=>tileFbm(oct,N,x,y,from,to);
+  const oct=[[4,11],[8,23],[16,37],[32,53],[64,71]].map(([p,sd])=>[p,tileableNoise(p,sd)]);
+  // octaves `from`..`to`, each wrapping at the texture's edge
+  const fbm=(x,y,from,to)=>{
+    let sum=0;
+    let amp=0.5;
+    let tot=0;
+    for(let k=from;k<to;k++){ sum+=oct[k][1](x*oct[k][0]/N,y*oct[k][0]/N)*amp; tot+=amp; amp*=0.55; }
+    return sum/tot;
+  };
   for(let y=0;y<N;y++) for(let x=0;x<N;x++){
     const o=(y*N+x)*4;
     img[o]  =clamp(fbm(x,y,0,3)*1.6-0.3,0,1)*255;       // broad mottling
@@ -349,7 +327,7 @@ groundMat.customProgramCacheKey=()=>"skylark-ground";
 // ---------- terrain tiles (pooled, recycled around the aircraft) ----------
 const TILE=420, TSEG=24, GX=7, GZ=10;
 export const Terrain={
-  tiles:[], water:null, cx:1e9, cz:1e9, mat:groundMat,
+  tiles:[], cx:1e9, cz:1e9, mat:groundMat,
   build(){
     for(let i=0;i<GX*GZ;i++){
       const geo=new THREE.PlaneGeometry(TILE,TILE,TSEG,TSEG);
@@ -363,25 +341,6 @@ export const Terrain={
       scene.add(mesh);
       this.tiles.push({mesh,key:null});
     }
-    // one water sheet: wherever the land dips below it you get a lake
-    const wtex=(()=>{
-      const c=document.createElement("canvas"); c.width=256; c.height=256;
-      const x=c.getContext("2d");
-      x.fillStyle="#4b86a4"; x.fillRect(0,0,256,256);
-      x.strokeStyle="rgba(255,255,255,0.18)"; x.lineWidth=1.6;
-      for(let i=0;i<90;i++){
-        const y=hash2(i*3.1,1)*256, xx=hash2(i*7.7,2)*256, w=8+hash2(i*11.3,3)*26;
-        x.beginPath(); x.moveTo(xx,y); x.quadraticCurveTo(xx+w*0.5,y-3,xx+w,y); x.stroke();
-      }
-      const t=new THREE.CanvasTexture(c);
-      t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(70,70);
-      t.colorSpace=THREE.SRGBColorSpace; return t;
-    })();
-    this.water=new THREE.Mesh(new THREE.PlaneGeometry(6400,6400),
-      new THREE.MeshPhongMaterial({map:wtex,color:0x9ec6dc,shininess:95,specular:0xffffff,
-        transparent:true,opacity:0.90}));
-    this.water.rotation.x=-Math.PI/2;
-    scene.add(this.water);
   },
   fill(t,ix,iz){
     const ox=ix*TILE, oz=iz*TILE;
@@ -447,8 +406,7 @@ export const Terrain={
   update(){
     this.refresh(false);
     FieldMap.refresh(false);
-    const step=200;
-    this.water.position.set(Math.round(P.x/step)*step, TH.water, Math.round(P.z/step)*step);
+    Water.follow(P.x,P.z,TH.water,performance.now());
   },
   // re-cut only the tiles around a point: moving the airfield re-grades the
   // ground under it, and a full refill would show as a hitch

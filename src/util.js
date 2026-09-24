@@ -19,6 +19,24 @@ export function vnoise(x,z){
   const a=hash2(xi,zi), b=hash2(xi+1,zi), c=hash2(xi,zi+1), d=hash2(xi+1,zi+1);
   return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
 }
+/**
+ * Tileable value noise: a random lattice `per` cells square that wraps, so a
+ * texture built from it repeats without a seam. Returns f(x, y) over lattice
+ * units, smoothly interpolated.
+ */
+export function tileableNoise(per,seed){
+  const a=new Float32Array(per*per);
+  const r=mulberry32(seed);
+  for(let i=0;i<a.length;i++) a[i]=r();
+  const at=(i,j)=>a[(((j%per)+per)%per)*per+(((i%per)+per)%per)];
+  return (x,y)=>{
+    const xi=Math.floor(x);
+    const yi=Math.floor(y);
+    const u=smooth(x-xi);
+    const v=smooth(y-yi);
+    return lerp(lerp(at(xi,yi),at(xi+1,yi),u),lerp(at(xi,yi+1),at(xi+1,yi+1),u),v);
+  };
+}
 export function lineGeo(arr){
   const g=new THREE.BufferGeometry();
   g.setAttribute("position",new THREE.BufferAttribute(new Float32Array(arr),3));

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { scene } from './view.js';
 import { Game, P } from './state.js';
 import { setRain } from './audio.js';
-import { Clouds, weatherCloudAlpha } from './clouds.js';
+import { Clouds } from './clouds.js';
 import { Atmosphere } from './atmosphere.js';
 
 // ---------- weather ----------
@@ -51,7 +51,7 @@ function applyWeather(lvl){
   setRain(Game.weather===2);
   // showers close the distance right in; thermals leave a summer haze
   Atmosphere.setWeather(Game.weather===2?1.9:(Game.weather===3?1.3:1.0));
-  for(const c of Clouds.list) c.sp.material.opacity=(0.55+Math.random()*0.4)*weatherCloudAlpha();
+  Clouds.setWeather();
 }
 
 export { WEATHERS, applyWeather, gDrops, updateRain };
