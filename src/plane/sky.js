@@ -13,6 +13,7 @@ import { SUNDIR } from '../sun.js';
 import { scene } from '../view.js';
 import { Atmosphere } from '../atmosphere.js';
 import { Clouds } from '../clouds.js';
+import { Quality } from '../quality.js';
 
 // ---------- lights ----------
 // Intensities in the table are in the old, pre-physical units; the physical
@@ -31,10 +32,15 @@ scene.add(sunLight.target);
 // own frame, so as it slides with the aircraft the shadow edges hold still
 // instead of crawling.
 /** The shadow box: its size, map resolution and how far ahead it is centred. */
-const SHADOW={ SIZE:760, RES:2048, AHEAD:260 };
+const SHADOW={ SIZE:760, RES:2048, AHEAD:260 };   // RES is the HIGH tier's
 const SHADOW_SIZE=SHADOW.SIZE, SHADOW_RES=SHADOW.RES, SHADOW_AHEAD=SHADOW.AHEAD;
-sunLight.castShadow=true;
-sunLight.shadow.mapSize.set(SHADOW_RES,SHADOW_RES);
+// the quality tier decides whether the sun casts at all, and at what resolution
+Quality.onChange(spec=>{
+  sunLight.castShadow=spec.shadows;
+  if(!spec.shadows) return;
+  sunLight.shadow.mapSize.set(spec.shadowRes,spec.shadowRes);
+  if(sunLight.shadow.map){ sunLight.shadow.map.dispose(); sunLight.shadow.map=null; }
+});
 {
   const c=sunLight.shadow.camera;
   c.left=-SHADOW_SIZE/2; c.right=SHADOW_SIZE/2; c.top=SHADOW_SIZE/2; c.bottom=-SHADOW_SIZE/2;
@@ -155,7 +161,7 @@ const Sky={
     _ctr.set(x,0,z-SHADOW_AHEAD);
     _right.set(0,1,0).cross(SUNDIR).normalize();
     _up.copy(SUNDIR).cross(_right).normalize();
-    const texel=SHADOW_SIZE/SHADOW_RES;
+    const texel=SHADOW_SIZE/(sunLight.shadow.mapSize.x||SHADOW_RES);
     const u=Math.round(_ctr.dot(_right)/texel)*texel, v=Math.round(_ctr.dot(_up)/texel)*texel;
     const w=_ctr.dot(SUNDIR);
     _ctr.copy(_right).multiplyScalar(u).addScaledVector(_up,v).addScaledVector(SUNDIR,w);

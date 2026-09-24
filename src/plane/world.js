@@ -15,7 +15,7 @@ import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } 
 import { scene, renderer } from '../view.js';
 import { CANOPY_H, PR, VIEW } from './config.js';
 import { SHADOW, TODS, Sky } from './sky.js';
-import { Models } from './models.js';
+import { Models, makeHangar, makeTower, makeParkedPlane } from './models.js';
 import { THEMES, TH, setTerrainTheme, af, baseH, groundH, landuse, isWood, onField, clearanceH,
          CELL, KIND, CROP, cellPlan, Terrain } from './terrain.js';
 import { G, Game, P, S, TO, popup } from '../state.js';
@@ -975,13 +975,22 @@ const Haz={
 
 // ---------- the airfield: the finale of every sector ----------
 function makeRunwayTexture(){
-  const c=document.createElement("canvas"); c.width=256; c.height=1024;
+  // painted at twice the layout's resolution: the strip is 64 m across and
+  // seen from 2 m up on the roll, where every texel shows
+  const c=document.createElement("canvas"); c.width=512; c.height=2048;
   const x=c.getContext("2d");
+  x.scale(2,2);
   x.fillStyle="#4a4a4c"; x.fillRect(0,0,256,1024);
-  for(let i=0;i<2600;i++){                                   // asphalt grain
-    x.fillStyle=`rgba(${90+hash(i)*40|0},${90+hash(i*3)*40|0},${92+hash(i*7)*40|0},0.20)`;
-    x.fillRect(hash(i*11)*256,hash(i*13)*1024,2,2);
+  for(let i=0;i<9000;i++){                                   // asphalt grain
+    x.fillStyle=`rgba(${80+hash(i)*50|0},${80+hash(i*3)*50|0},${82+hash(i*7)*50|0},0.22)`;
+    x.fillRect(hash(i*11)*256,hash(i*13)*1024,1,1);
   }
+  x.globalAlpha=0.10;                                        // patched and weathered
+  for(let i=0;i<40;i++){
+    x.fillStyle=hash(i*17)<0.5?"#3a3a3c":"#5a5a58";
+    x.fillRect(hash(i*19)*230,hash(i*23)*1000,10+hash(i*29)*30,20+hash(i*31)*70);
+  }
+  x.globalAlpha=1;
   x.fillStyle="#3e3e40";                                     // rubber in the touchdown zones
   x.globalAlpha=0.5;
   x.fillRect(30,150,196,90); x.fillRect(30,784,196,90);
@@ -1013,7 +1022,7 @@ function makeRunwayTexture(){
   x.restore();
   const t=new THREE.CanvasTexture(c);
   t.colorSpace=THREE.SRGBColorSpace;
-  t.anisotropy=4;
+  t.anisotropy=renderer.capabilities.getMaxAnisotropy();
   return t;
 }
 const Airfield={
@@ -1029,8 +1038,10 @@ const Airfield={
     for(let z=-af.len/2;z<=af.len/2;z+=50){
       edgePos.push(-af.wid/2-1.5,0.9,z, af.wid/2+1.5,0.9,z);
     }
+    // round glows rather than square points, which read as white boxes up close
     af.edge=new THREE.Points(lineGeo(edgePos),new THREE.PointsMaterial({color:0xfff0c0,
-      size:1.9,sizeAttenuation:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+      map:glowTex,size:2.6,sizeAttenuation:true,transparent:true,
+      blending:THREE.AdditiveBlending,depthWrite:false}));
     g.add(af.edge);
     // approach strobes running toward the threshold
     af.strobes=[];
@@ -1064,41 +1075,20 @@ const Airfield={
       g.add(piv);
       af.windsockPivot=piv;
     }
-    // hangars, tower and a couple of parked aircraft
-    const hangarMat=new THREE.MeshLambertMaterial({color:0xb9bcb4});
-    const roofMat=new THREE.MeshLambertMaterial({color:0x8f9a92});
-    for(let i=0;i<3;i++){
-      const hx=-af.wid/2-96, hz=-af.len/2+180+i*84;
-      const box=new THREE.Mesh(new THREE.BoxGeometry(54,14,60),hangarMat);
-      box.position.set(hx,7,hz); g.add(box);
-      const roof=new THREE.Mesh(new THREE.CylinderGeometry(30,30,60,12,1,false,0,Math.PI),roofMat);
-      roof.rotation.x=Math.PI/2; roof.rotation.z=Math.PI;
-      roof.position.set(hx,14,hz);
-      roof.scale.set(0.9,1,0.34);
-      g.add(roof);
-    }
-    {
-      const t=new THREE.Mesh(new THREE.BoxGeometry(16,30,16),
-        new THREE.MeshLambertMaterial({color:0xe6e2d4}));
-      t.position.set(-af.wid/2-60,15,-af.len/2+90); g.add(t);
-      const cab=new THREE.Mesh(new THREE.BoxGeometry(22,9,22),
-        new THREE.MeshPhongMaterial({color:0x7fa8c4,shininess:60}));
-      cab.position.set(-af.wid/2-60,34,-af.len/2+90); g.add(cab);
-      const rail=new THREE.Mesh(new THREE.BoxGeometry(26,1,26),roofMat);
-      rail.position.set(-af.wid/2-60,39,-af.len/2+90); g.add(rail);
-    }
-    for(let i=0;i<3;i++){                                       // parked light aircraft
-      const px=-af.wid/2-40, pz=-af.len/2+300+i*26;
-      const body=new THREE.Mesh(new THREE.BoxGeometry(3,2.4,10),
-        new THREE.MeshLambertMaterial({color:i%2?0xf2c14e:0xfbf4e2}));
-      body.position.set(px,2.4,pz); g.add(body);
-      const wing=new THREE.Mesh(new THREE.BoxGeometry(18,0.6,3),
-        new THREE.MeshLambertMaterial({color:0xfbf4e2}));
-      wing.position.set(px,3.2,pz+0.6); g.add(wing);
-      const tail=new THREE.Mesh(new THREE.BoxGeometry(6,0.5,2),
-        new THREE.MeshLambertMaterial({color:0xfbf4e2}));
-      tail.position.set(px,3.4,pz-4.4); g.add(tail);
-    }
+    // hangars, the watch office and a few aeroplanes on the grass
+    const baked=new THREE.MeshLambertMaterial({vertexColors:true});
+    const add=(geo,x,z,ry,cast)=>{
+      const m=new THREE.Mesh(geo,baked);
+      m.position.set(x,0,z); m.rotation.y=ry||0;
+      m.castShadow=!!cast; m.receiveShadow=true;
+      g.add(m); return m;
+    };
+    const hg=makeHangar();
+    for(let i=0;i<3;i++) add(hg,-af.wid/2-96,-af.len/2+180+i*84,Math.PI/2,false);
+    add(makeTower(),-af.wid/2-60,-af.len/2+90,Math.PI/2,false);
+    [["#f2c14e","#c33a28"],["#fbf4e2","#2b4f86"],["#b8cfa0","#5a3a24"]].forEach(([b,t],i)=>{
+      add(makeParkedPlane(b,t),-af.wid/2-40,-af.len/2+300+i*26,Math.PI/2+(i-1)*0.25,true);
+    });
     g.visible=false;
     scene.add(g);
     af.group=g;

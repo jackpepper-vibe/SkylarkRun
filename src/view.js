@@ -5,6 +5,7 @@
 // setter or a rename. The HUD is a plain 2D canvas laid over the GL one.
 import * as THREE from 'three';
 import './atmosphere.js';
+import { Quality, TIER } from './quality.js';
 
 
 // ---------- canvases / three ----------
@@ -15,7 +16,7 @@ const renderer=new THREE.WebGLRenderer({canvas:glc,antialias:false});
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 // the sun casts real shadows near the aircraft (see sky.js for the rig)
 renderer.shadowMap.enabled=true;
-renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.shadowMap.type=THREE.PCFShadowMap;
 renderer.toneMappingExposure=1.0;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 const scene=new THREE.Scene();
@@ -24,8 +25,9 @@ const scene=new THREE.Scene();
 scene.fog=new THREE.Fog(0xbcd8ee,1,2);
 const camera=new THREE.PerspectiveCamera(72,1,0.5,9000);
 camera.rotation.order="YXZ";
+Quality.detect(renderer.getContext());
 function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,2);
+  DPR=Math.min(window.devicePixelRatio||1,Quality.spec.maxDpr);
   W=window.innerWidth;H=window.innerHeight;
   renderer.setPixelRatio(DPR); renderer.setSize(W,H);
   camera.aspect=W/H; camera.updateProjectionMatrix();
@@ -33,6 +35,11 @@ function resize(){
   hudc.style.width=W+"px"; hudc.style.height=H+"px";
   hctx.setTransform(DPR,0,0,DPR,0,0);
 }
-window.addEventListener("resize",resize); resize();
+window.addEventListener("resize",resize);
+Quality.onChange(resize);
+// If the browser takes the GPU away — a driver reset, or a software renderer
+// that stalled too long — say we will handle it, and come back on the lightest
+// tier. three re-creates its GPU state itself when the context is restored.
+glc.addEventListener("webglcontextlost",e=>{ e.preventDefault(); Quality.set(TIER.LOW); });
 
 export { DPR, H, W, camera, hctx, renderer, scene };

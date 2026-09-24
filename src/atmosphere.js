@@ -82,8 +82,9 @@ THREE.ShaderChunk.fog_fragment=`
 function inject(shader){
   for(const k in uniforms) shader.uniforms[k]=uniforms[k];
 }
-// Every material gets the shared uniforms unless it brings its own hook.
-THREE.Material.prototype.onBeforeCompile=function(shader){ inject(shader); };
+// Every fog-capable material gets the shared uniforms unless it brings its own
+// hook; depth and distance materials for shadows have no fog and are left alone.
+THREE.Material.prototype.onBeforeCompile=function(shader){ if(shader.uniforms.fogColor) inject(shader); };
 
 const _c=new THREE.Color();
 export const Atmosphere={

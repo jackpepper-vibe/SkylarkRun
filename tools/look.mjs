@@ -58,6 +58,7 @@ console.log('renderer:', await page.evaluate(() => {
   const e = g.getExtension('WEBGL_debug_renderer_info');
   return e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'unknown';
 }));
+console.log('graphics tier:', (await page.evaluate(() => window.SKY.quality())).name);
 
 // Advance to the next sector the way the Continue button does, then fly it.
 const nextSector = async () => {
@@ -79,7 +80,8 @@ const POSES = [
   ['roll',     async () => page.evaluate(() => { window.SKY.takeoff(); window.SKY.step(60); })],
   ['climb',    async () => page.evaluate(() => { window.SKY.play(); window.SKY.step(90); })],
   ['cruise',   async () => page.evaluate(() => window.SKY.step(300))],
-  ['low',      async () => { await page.evaluate(() => window.SKY.step(60)); await holdAgl(28); }],
+  ['nofx',     async () => page.evaluate(() => window.SKY.fx(false))],
+  ['low',      async () => { await page.evaluate(() => { window.SKY.fx(true); window.SKY.step(60); }); await holdAgl(28); }],
   ['approach', async () => page.evaluate(() => { window.SKY.approach(); window.SKY.step(700); })],
   ['s2',       async () => { await nextSector(); await flyOn(250); }],
   ['s3',       async () => { await nextSector(); await flyOn(250); }],

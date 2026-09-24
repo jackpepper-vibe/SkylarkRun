@@ -266,6 +266,96 @@ function shed(){
   ]);
 }
 
+// ---------- the airfield ----------
+/** An arched hangar: brick flanks, a ribbed barrel roof, sliding doors. */
+export function makeHangar(){
+  const w=54, d=60, wall=10, rise=12;
+  const parts=[box(w,wall,d,0,0,0,"#9a7a62")];
+  // the barrel roof, ribbed by shading alternate panels
+  const SEG=18, pos=[];
+  for(let i=0;i<SEG;i++){
+    const a0=i/SEG*Math.PI, a1=(i+1)/SEG*Math.PI;
+    const x0=Math.cos(a0)*w/2*1.02, y0=wall+Math.sin(a0)*rise;
+    const x1=Math.cos(a1)*w/2*1.02, y1=wall+Math.sin(a1)*rise;
+    pos.push(x0,y0,d/2+0.4, x1,y1,d/2+0.4, x1,y1,-d/2-0.4,  x0,y0,d/2+0.4, x1,y1,-d/2-0.4, x0,y0,-d/2-0.4);
+  }
+  const roof=new THREE.BufferGeometry();
+  roof.setAttribute("position",new THREE.Float32BufferAttribute(pos,3));
+  roof.computeVertexNormals();
+  roof.setAttribute("color",new THREE.BufferAttribute(new Float32Array(pos.length),3));
+  paint(roof,"#8c948e",(v,n)=>(Math.floor((Math.atan2(v.y-wall,v.x)/Math.PI)*SEG*2)%2?0.86:1.0));
+  parts.push(roof);
+  // the arched gable ends, filled, with the doors let into the front
+  for(const side of [1,-1]){
+    const fan=[];
+    for(let i=0;i<SEG;i++){
+      const a0=i/SEG*Math.PI, a1=(i+1)/SEG*Math.PI;
+      const z=side*(d/2+0.05);
+      const p0=[Math.cos(a0)*w/2, wall+Math.sin(a0)*rise], p1=[Math.cos(a1)*w/2, wall+Math.sin(a1)*rise];
+      if(side>0) fan.push(0,wall,z, p0[0],p0[1],z, p1[0],p1[1],z);
+      else       fan.push(0,wall,z, p1[0],p1[1],z, p0[0],p0[1],z);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute("position",new THREE.Float32BufferAttribute(fan,3));
+    g.computeVertexNormals();
+    g.setAttribute("color",new THREE.BufferAttribute(new Float32Array(fan.length),3));
+    parts.push(paint(g,"#b8b4a8"));
+  }
+  for(let i=0;i<6;i++){
+    parts.push(box(7.6,9.2,0.3,-w/2+4.9+i*8.8,0,d/2+0.12,i%2?"#5c6a70":"#66747a"));
+  }
+  parts.push(box(w-2,0.8,0.4,0,9.2,d/2+0.2,"#3e4448"));
+  return merge(parts);
+}
+/** The watch office: two rendered storeys, a glazed cab, a railed roof. */
+export function makeTower(){
+  const parts=[
+    box(16,8,12,0,0,0,"#ece8dc"),
+    box(12,4.5,9,0,8,0,"#ece8dc"),
+    box(12.4,2.8,9.4,0,9.2,0,"#2c3a44"),                 // the glazed cab
+    box(17,0.5,13,0,8,0,"#b8b2a4"),                      // the balcony slab
+    box(12.8,0.5,9.8,0,12.5,0,"#b8b2a4"),
+    box(1.2,3,1.2,4,13,2.5,"#6a6e70"),                   // anemometer mast foot
+    box(0.25,5,0.25,4,16,2.5,"#6a6e70"),
+  ];
+  // the balcony rail, as posts round the slab
+  for(let i=0;i<=8;i++){
+    const t=i/8*17-8.5;
+    parts.push(box(0.2,1.1,0.2,t,8.5,6.4,"#ffffff"));
+    parts.push(box(0.2,1.1,0.2,t,8.5,-6.4,"#ffffff"));
+  }
+  parts.push(box(17,0.18,0.18,0,9.6,6.4,"#ffffff"));
+  parts.push(box(17,0.18,0.18,0,9.6,-6.4,"#ffffff"));
+  // ground-floor windows, the long way
+  for(const side of [1,-1]) for(let i=0;i<4;i++){
+    parts.push(box(2.2,1.8,0.12,-6+i*4,2.6,side*6.05,"#2c3a44"));
+    parts.push(box(2.2,1.8,0.12,-6+i*4,5.4,side*6.05,"#2c3a44"));
+  }
+  return merge(parts);
+}
+/** A parked parasol monoplane, in its owner's colours. */
+export function makeParkedPlane(body,trim){
+  const parts=[];
+  const fus=prep(new THREE.CylinderGeometry(0.55,0.95,7.2,10));
+  fus.rotateX(Math.PI/2); fus.translate(0,2.2,0.4);
+  parts.push(paint(fus,body,(v,n)=>0.75+0.25*Math.max(0,n.y)));
+  const cowl=prep(new THREE.CylinderGeometry(0.95,0.95,1.2,10));
+  cowl.rotateX(Math.PI/2); cowl.translate(0,2.2,-3.7);
+  parts.push(paint(cowl,trim));
+  parts.push(box(10.5,0.22,1.9,0,3.9,-1.4,body));        // the parasol wing
+  parts.push(box(0.14,1.5,0.14,-1.1,2.4,-1.4,"#3a3632"));
+  parts.push(box(0.14,1.5,0.14,1.1,2.4,-1.4,"#3a3632"));
+  parts.push(box(3.6,0.14,1.1,0,2.4,3.6,body));          // tailplane
+  parts.push(box(0.14,1.4,1.2,0,2.4,3.6,trim));          // fin
+  for(const sx of [-1,1]){
+    const wh=prep(new THREE.CylinderGeometry(0.45,0.45,0.25,10));
+    wh.rotateZ(Math.PI/2); wh.translate(sx*1.0,0.45,-2.2);
+    parts.push(paint(wh,"#2a2622"));
+  }
+  parts.push(box(0.12,2.0,0.18,0,1.2,-4.35,"#5a4632")); // propeller, stopped
+  return merge(parts);
+}
+
 // ---------- rocks and bales ----------
 function rock(){
   const g=prep(new THREE.DodecahedronGeometry(1,1));

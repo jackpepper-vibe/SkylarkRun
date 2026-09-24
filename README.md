@@ -8,9 +8,10 @@ every sector.
 
 ```
 src/
-  engine    view sun clouds weather post input audio overlays state util
-            logbook damage active
-  plane/    config sky world hud flight   the monoplane and its countryside
+  engine    view atmosphere quality sun clouds weather post input audio
+            overlays state util logbook damage active
+  plane/    config sky terrain water models world hud flight
+                                        the monoplane and its countryside
   main.js   frame loop and menu flow
 ```
 
@@ -25,6 +26,9 @@ shared scene the moment it is imported, which is emphatically a property of one
 particular world rather than of the renderer. `sun.js` holds the only thing the
 post-processing genuinely needs from a sky — the sun's direction and the
 god-ray strength.
+
+three.js (0.186) arrives through the import map in `index.html`; every module
+that uses it imports it by name, and the module check fails any that does not.
 
 ## Checks
 
@@ -183,21 +187,65 @@ Systems are small managers with the same shape — build once, `reset(level)`,
 - **Terrain** is one pure height function driving geometry, scatter placement and
   collision, so what you see is exactly what you hit. Tiles are recycled around
   the aircraft with analytic normals, which keeps the lighting seamless.
-- **Scatter** (woodland, hedgerows, farmsteads, rocks) is a deterministic cell
-  grid rebuilt in instanced meshes whenever the aircraft crosses a cell boundary.
-- **Post** is a hand-rolled bloom + god-ray + grade chain on core Three.js only.
+- **The field plan** gives every 95 m cell a deterministic plan — pasture,
+  arable or wood, its crop, row direction, hedged edges and gate. The scatter
+  plants hedges, trees and bales from it, and the ground shader paints from it
+  (through a 64 x 64 data texture that slides with the aircraft), so painted
+  and planted hedges agree. Crop rows, furrows, tramlines, headlands and mowing
+  stripes are drawn per pixel and faded by their own screen-space frequency so
+  nothing shimmers; woodland, heath, rock, sand and snow follow land use,
+  height and slope.
+- **Scatter** (oaks, poplars, pines, hedge runs, cottages, farmhouses, barns,
+  rocks, bales) is a deterministic cell grid rebuilt in instanced meshes whenever
+  the aircraft crosses a cell boundary. Every model is built once in
+  `models.js` as merged geometry with baked vertex colour, in two levels of
+  detail: the near set, inside the sun's shadow box, at full detail and casting
+  shadows, and the far set with about a quarter of the triangles.
+- **The atmosphere** (`atmosphere.js`) replaces three's fog chunks with an
+  exponential height haze and a sun in-scatter term on shared uniforms. Every
+  fogged material, the sky dome, the clouds and the water evaluate the same
+  functions, so land and sky meet at the horizon without a seam.
+- **The sky** is a shader dome: a per-time-of-day gradient, procedural cirrus,
+  and a sun disc bright enough to bloom.
+- **Clouds** are instanced billboards sampling an atlas of cumulus shapes built
+  as unions of spheres, so each texel carries an exact normal; the shader lights
+  them from the real sun (bright crowns, grey bases, a silver edge into the
+  sun). Clusters share one condensation level, sort back to front, and fade as
+  you fly into them.
+- **Water** reflects the dome's sky through a Fresnel term over two drifting
+  ripple layers, with a glitter path under the sun.
+- **Shadows**: the sun casts real shadows from a 760 m map laid ahead of the
+  aircraft and snapped to its texel grid so edges hold still. Under every object
+  there is also a soft contact shade for skylight. The aeroplane's own shadow is
+  a silhouette cast forward at a fixed rake rather than honestly — the sun is
+  ahead of you in every sector, so a true projection would hide it behind the
+  tail forever.
+- **Post** renders the scene linear HDR into an R11G11B10 target, blooms only
+  what is brighter than paper white through a three-level pyramid, adds the
+  god-ray streak, and tone-maps with three's own chunks so the frame grades the
+  same with the chain on or off.
+- **Quality tiers** (`quality.js`): HIGH has 2048 shadows, 4x MSAA and up to 2x
+  pixels; MEDIUM has 1024 shadows and 1.5x pixels; LOW has no shadows and 1x
+  pixels. A software rasteriser starts on LOW. After that the tier only ever
+  steps down, after two 90-frame windows of flying that average over 24 ms. A
+  lost WebGL context comes back on LOW.
 - **The cockpit** is drawn in 2D over the render: brass gauges, a magnetic
-  compass, a paper chart on the knee, and a parasol wing overhead.
-- **Contact shadows** without shadow maps: the sun is fixed for a sector, so
-  scenery gets a soft instanced blob thrown away from it, and the aeroplane gets
-  a silhouette on the ground. That one is cast forward at a fixed rake rather
-  than honestly — the sun is ahead of you in every sector, so a true projection
-  would hide your own shadow behind the tail forever.
+  compass, a paper chart on the knee, a parasol wing overhead, a propeller that
+  is a faint disc rather than frozen blades, and a silk scarf in the slipstream.
 
-Measured cost is about 0.7 ms of JavaScript per frame (0.07 ms simulation,
-0.66 ms cockpit); the rest is GPU.
+Measured cost is under 0.5 ms of JavaScript per frame; on an Intel Iris Xe the
+whole frame takes about 9.5 ms at 1280 x 720 on the HIGH tier.
 
 ## Development
+
+Judge the look on the real GPU, not in the software renderer:
+
+```
+node tools/look.mjs                  # posed captures into shots/look/
+node tools/look.mjs shots/x cruise   # just some poses
+node tools/look.mjs --perf           # frame time in the cruise pose, vsync off
+PROBE="SKY.fx(false)" node tools/look.mjs --perf   # price a feature by turning it off
+```
 
 Screenshot any state headlessly with the shared shot tool:
 
@@ -208,7 +256,8 @@ node C:/Claude/Tools/shot/shot.mjs ./index.html --viewport 1280x720 --wait 4000 
 
 `window.SKY` is the test hook: `takeoff()`, `play()` (takes off for you), `approach()`, `step(n, dt)` to advance
 the simulation without waiting on frames, `hold(true)` to freeze the clock while
-still rendering, and `fx(false)` to drop the post chain.
+still rendering, `fx(false)` to drop the post chain, `quality()` / `setQuality(t)`
+for the graphics tier, and `gfx()` for the renderer and scene.
 
 The smoke test drives all of that — the take-off roll, the ring course, a flown
 approach, a go-around and a heavy arrival — and fails on any console error:

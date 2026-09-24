@@ -21,7 +21,6 @@ export const Game = {
   whiteout: 0,
   tPrev: 0,
   readyT: 0,              // 3-2-1 hold before the controls go live
-  scarfPhase: 0,
   warnObst: false,
   lastBeep: 0,
   lastFuelBeep: 0,

@@ -211,6 +211,15 @@ if (!storage) {
     (errors.length > before ? ', errors: ' + errors.slice(before, before + 2).join(' | ') : ''));
 }
 
+// --- graphics tier ---
+// This suite runs on a software rasteriser, which is exactly the case the
+// quality system exists for: the sun's shadow pass alone can stall it until
+// shader programs fail. It must start on the lightest tier.
+{
+  const q = await page.evaluate(() => window.SKY.quality());
+  check('a software renderer starts on the LOW graphics tier', q.software && q.tier === 0, JSON.stringify(q));
+}
+
 check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 await browser.close();
 await new Promise(r => server.close(r));

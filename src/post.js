@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { DPR, H, W, camera, renderer, scene } from './view.js';
 import { Game, P } from './state.js';
 import { SUNDIR, Sun } from './sun.js';
+import { Quality } from './quality.js';
 
 const postCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
 const postScene=new THREE.Scene();
@@ -106,7 +107,7 @@ function makeRTs(){
   const w=Math.max(8,Math.floor(W*DPR)), h=Math.max(8,Math.floor(H*DPR));
   const hdr={type:THREE.HalfFloatType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,
              depthBuffer:false};
-  rtScene=new THREE.WebGLRenderTarget(w,h,Object.assign({},hdr,{depthBuffer:true,samples:4,
+  rtScene=new THREE.WebGLRenderTarget(w,h,Object.assign({},hdr,{depthBuffer:true,samples:Quality.spec.msaa,
     format:THREE.RGBFormat,type:THREE.UnsignedInt101111Type}));
   for(let i=1;i<=3;i++){
     const lw=Math.max(4,w>>i), lh=Math.max(4,h>>i);
@@ -115,8 +116,8 @@ function makeRTs(){
   rtRays=new THREE.WebGLRenderTarget(Math.max(4,w>>2),Math.max(4,h>>2),hdr);
   compMat.uniforms.res.value.set(w,h);
 }
-makeRTs();
 window.addEventListener("resize",makeRTs);
+Quality.onChange(makeRTs);           // builds them the first time, too
 
 function quadPass(mat,target){
   postQuad.material=mat;

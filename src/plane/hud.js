@@ -113,6 +113,70 @@ const PropDisc={
   }
 };
 
+// The pilot's silk scarf, streaming into the corner of the view. A ribbon
+// along a spine that carries a travelling wave, growing toward the free end;
+// each strip is shaded by the wave's slope, which is what reads as folds in
+// cloth catching the light, and the end is frayed into a fringe. Sideslip
+// swings it across.
+const Scarf={
+  phase:0, N:22, L:[], R:[],
+  draw(W,H){
+    this.phase+=0.06+P.speed*0.0007;
+    const N=this.N, L=this.L, R=this.R;
+    const slip=clamp(P.vx/MAX_VX,-1,1);
+    const x0=W*1.01, y0=H*0.075;                        // it comes from behind the pilot's shoulder
+    const len=Math.min(W,H)*0.46;
+    const ang=Math.PI*0.80+slip*0.22;                   // trailing down and back toward the corner
+    const dx=Math.cos(ang), dy=Math.sin(ang);
+    const shades=[];
+    for(let i=0;i<=N;i++){
+      const k=i/N;
+      const wave=Math.sin(this.phase-k*6.0)*len*0.055*k*(0.5+k*0.8);
+      const slope=Math.cos(this.phase-k*6.0);
+      const sx=x0+dx*len*k-dy*wave, sy=y0+dy*len*k+dx*wave;
+      const w=len*(0.105-k*0.035)*(0.78+0.22*Math.abs(slope));
+      L[i]=[sx+dy*w*0.5, sy-dx*w*0.5];
+      R[i]=[sx-dy*w*0.5, sy+dx*w*0.5];
+      shades[i]=slope;
+    }
+    hctx.save();
+    // the whole ribbon first, so the shaded strips laid over it leave no seams
+    hctx.fillStyle="rgb(228,218,198)";
+    hctx.beginPath(); hctx.moveTo(L[0][0],L[0][1]);
+    for(let i=1;i<=N;i++) hctx.lineTo(L[i][0],L[i][1]);
+    for(let i=N;i>=0;i--) hctx.lineTo(R[i][0],R[i][1]);
+    hctx.closePath(); hctx.fill();
+    for(let i=0;i<N;i++){
+      const lit=0.80+0.20*shades[i];
+      const r=Math.round(246*lit), g=Math.round(238*lit), b=Math.round(220*lit);
+      hctx.fillStyle="rgb("+r+","+g+","+b+")";
+      hctx.beginPath();
+      hctx.moveTo(L[i][0],L[i][1]); hctx.lineTo(L[i+1][0],L[i+1][1]);
+      hctx.lineTo(R[i+1][0],R[i+1][1]); hctx.lineTo(R[i][0],R[i][1]);
+      hctx.closePath(); hctx.fill();
+      hctx.strokeStyle=hctx.fillStyle; hctx.lineWidth=1; hctx.stroke();
+    }
+    // a woven stripe near the end, and the fringe
+    const e=N-3;
+    hctx.strokeStyle="rgba(178,58,40,0.75)"; hctx.lineWidth=Math.max(1.5,len*0.010);
+    hctx.beginPath(); hctx.moveTo(L[e][0],L[e][1]); hctx.lineTo(R[e][0],R[e][1]); hctx.stroke();
+    hctx.strokeStyle="rgba(236,226,204,0.9)"; hctx.lineWidth=1.2;
+    for(let f=0;f<=6;f++){
+      const t=f/6;
+      const ax=L[N][0]+(R[N][0]-L[N][0])*t, ay=L[N][1]+(R[N][1]-L[N][1])*t;
+      const flick=Math.sin(this.phase*1.7+f)*len*0.012;
+      hctx.beginPath(); hctx.moveTo(ax,ay);
+      hctx.lineTo(ax+dx*len*0.035-dy*flick, ay+dy*len*0.035+dx*flick); hctx.stroke();
+    }
+    // a soft edge line so it holds against a white sky
+    hctx.strokeStyle="rgba(120,104,78,0.35)"; hctx.lineWidth=1;
+    hctx.beginPath(); hctx.moveTo(L[0][0],L[0][1]);
+    for(let i=1;i<=N;i++) hctx.lineTo(L[i][0],L[i][1]);
+    hctx.stroke();
+    hctx.restore();
+  }
+};
+
 function drawSplats(){
   for(const s of splats){
     hctx.save();
@@ -317,6 +381,24 @@ function drawHUD(t){
     }
   }
 
+  // ---- sun on the cowling: a soft sheen that slides across it as she banks ----
+  {
+    const sx=W*0.5-clamp(P.roll,-1,1)*W*0.22, sy=cowlTop+H*0.018;
+    const sh=hctx.createRadialGradient(sx,sy,0,sx,sy,W*0.16);
+    sh.addColorStop(0,"rgba(255,244,214,0.20)");
+    sh.addColorStop(0.5,"rgba(255,244,214,0.06)");
+    sh.addColorStop(1,"rgba(255,244,214,0)");
+    hctx.save();
+    hctx.beginPath();
+    hctx.moveTo(W*0.16,panelTop+10);
+    hctx.quadraticCurveTo(W*0.24,cowlTop+H*0.012,W*0.34,cowlTop);
+    hctx.lineTo(W*0.66,cowlTop);
+    hctx.quadraticCurveTo(W*0.76,cowlTop+H*0.012,W*0.84,panelTop+10);
+    hctx.closePath(); hctx.clip();
+    hctx.fillStyle=sh; hctx.fillRect(sx-W*0.16,cowlTop-4,W*0.32,H*0.12);
+    hctx.restore();
+  }
+
   // ---- windscreen: small, curved, scratched ----
   {
     hctx.save();
@@ -361,6 +443,12 @@ function drawHUD(t){
     fg2.addColorStop(0,"#e8c887");fg2.addColorStop(0.5,"#a8823a");fg2.addColorStop(1,"#e0bd76");
     hctx.strokeStyle=fg2;
     hctx.stroke();
+    // a travelling glint on the brass as the light moves over it
+    const gk=0.5-clamp(P.roll,-1,1)*0.35;
+    const gx=W*(0.345+gk*0.31), gy=cowlTop+2-(1-Math.pow(gk*2-1,2))*(cowlTop-wsTop)*0.5;
+    const gg=hctx.createRadialGradient(gx,gy,0,gx,gy,H*0.014);
+    gg.addColorStop(0,"rgba(255,248,222,0.55)"); gg.addColorStop(1,"rgba(255,248,222,0)");
+    hctx.fillStyle=gg; hctx.fillRect(gx-H*0.03,gy-H*0.03,H*0.06,H*0.06);
     hctx.restore();
   }
 
@@ -604,32 +692,7 @@ function drawHUD(t){
   }
 
   // ---- flying scarf, top corner ----
-  {
-    Game.scarfPhase+=0.05+P.speed*0.0006;
-    hctx.save();
-    hctx.globalAlpha=0.92;
-    hctx.fillStyle="#f4ead4";
-    hctx.beginPath();
-    hctx.moveTo(W*0.96,-2);
-    let px=W*0.96, py=-2;
-    for(let i=1;i<=6;i++){
-      const k=i/6;
-      px=W*(0.96-k*0.26);
-      py=H*(0.02+k*0.20)+Math.sin(Game.scarfPhase+i*0.9)*H*0.030*k;
-      hctx.lineTo(px,py);
-    }
-    for(let i=6;i>=1;i--){
-      const k=i/6;
-      const qx=W*(0.96-k*0.26)+W*0.012;
-      const qy=H*(0.02+k*0.20)+Math.sin(Game.scarfPhase+i*0.9)*H*0.030*k+H*0.030;
-      hctx.lineTo(qx,qy);
-    }
-    hctx.lineTo(W*0.985,H*0.02);
-    hctx.closePath();hctx.fill();
-    hctx.globalAlpha=0.18;hctx.fillStyle="#8a7a5a";
-    hctx.fill();
-    hctx.restore();
-  }
+  Scarf.draw(W,H);
 
   drawDents();
   hctx.restore();   // end cockpit rigid-body transform

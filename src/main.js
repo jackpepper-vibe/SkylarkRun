@@ -14,6 +14,7 @@ import { renderPost, rtScene } from './post.js';
 import { overlays, show, hideAll } from './overlays.js';
 import { Active } from './active.js';
 import { updateDying } from './damage.js';
+import { Quality } from './quality.js';
 "use strict";
 
 // The aeroplane, behind the Craft interface the engine drives. It is imported
@@ -60,7 +61,10 @@ function startLoop(){
 function frame(t){
   if(!Game.looping) return;
   requestAnimationFrame(frame);
-  const dt=Game.simHold?0:(Math.min(0.05,(t-Game.tPrev)/1000)||0.016);Game.tPrev=t;
+  const ms=t-Game.tPrev;
+  const dt=Game.simHold?0:(Math.min(0.05,ms/1000)||0.016);Game.tPrev=t;
+  // only flying frames judge the graphics tier; menus and holds do not
+  if(Game.state===S.PLAY&&!Game.simHold) Quality.sample(ms);
   if(Game.simHold){
     Craft.tickWorld(dt,t);
     renderFrame(t);
@@ -303,7 +307,10 @@ window.SKY={
   setMuted(m){ setMuted(m); },
   fx(on){ Game.postOn=on; },
   /** The renderer and scene, for profiling tools that switch features off. */
-  gfx:()=>({ renderer, scene, camera })
+  gfx:()=>({ renderer, scene, camera }),
+  /** The graphics tier: read it, or force one (0 low .. 2 high). */
+  quality:()=>({ tier:Quality.tier, name:Quality.name, software:Quality.software }),
+  setQuality(t){ Quality.set(t); }
 };
 
 // ---------- PWA manifest (inline) ----------
