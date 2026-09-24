@@ -2,82 +2,17 @@
 //
 // The cockpit itself is geometry (cockpit.js). What is drawn here is what no
 // real cockpit has: the gate marker, take-off and landing guidance, score
-// popups, the countdown and the flashes — plus the scarf and the slipstream,
-// which read better as flat shapes streaming past the edge of the view.
+// popups, the countdown and the flashes — plus the slipstream, which reads
+// better as flat streaks tearing past the edge of the view.
 import * as THREE from 'three';
 import { H, W, camera, hctx } from '../view.js';
 import { clamp } from '../util.js';
 import { G, Game, P, S, TO, popups } from '../state.js';
-import { MAX_VX } from './config.js';
 import { Airfield, Rings, af, groundH } from './world.js';
 import { CAN_TILT, haveTilt, permState } from '../input.js';
 
 // ---------- HUD ----------
 const _mark=new THREE.Vector3();
-
-// The pilot's silk scarf, streaming into the corner of the view. A ribbon
-// along a spine that carries a travelling wave, growing toward the free end;
-// each strip is shaded by the wave's slope, which is what reads as folds in
-// cloth catching the light, and the end is frayed into a fringe. Sideslip
-// swings it across.
-const Scarf={
-  phase:0, N:22, L:[], R:[],
-  draw(W,H){
-    this.phase+=0.06+P.speed*0.0007;
-    const N=this.N, L=this.L, R=this.R;
-    const slip=clamp(P.vx/MAX_VX,-1,1);
-    const x0=W*1.01, y0=H*0.075;                        // it comes from behind the pilot's shoulder
-    const len=Math.min(W,H)*0.46;
-    const ang=Math.PI*0.80+slip*0.22;                   // trailing down and back toward the corner
-    const dx=Math.cos(ang), dy=Math.sin(ang);
-    const shades=[];
-    for(let i=0;i<=N;i++){
-      const k=i/N;
-      const wave=Math.sin(this.phase-k*6.0)*len*0.055*k*(0.5+k*0.8);
-      const slope=Math.cos(this.phase-k*6.0);
-      const sx=x0+dx*len*k-dy*wave, sy=y0+dy*len*k+dx*wave;
-      const w=len*(0.105-k*0.035)*(0.78+0.22*Math.abs(slope));
-      L[i]=[sx+dy*w*0.5, sy-dx*w*0.5];
-      R[i]=[sx-dy*w*0.5, sy+dx*w*0.5];
-      shades[i]=slope;
-    }
-    hctx.save();
-    // the whole ribbon first, so the shaded strips laid over it leave no seams
-    hctx.fillStyle="rgb(228,218,198)";
-    hctx.beginPath(); hctx.moveTo(L[0][0],L[0][1]);
-    for(let i=1;i<=N;i++) hctx.lineTo(L[i][0],L[i][1]);
-    for(let i=N;i>=0;i--) hctx.lineTo(R[i][0],R[i][1]);
-    hctx.closePath(); hctx.fill();
-    for(let i=0;i<N;i++){
-      const lit=0.80+0.20*shades[i];
-      const r=Math.round(246*lit), g=Math.round(238*lit), b=Math.round(220*lit);
-      hctx.fillStyle="rgb("+r+","+g+","+b+")";
-      hctx.beginPath();
-      hctx.moveTo(L[i][0],L[i][1]); hctx.lineTo(L[i+1][0],L[i+1][1]);
-      hctx.lineTo(R[i+1][0],R[i+1][1]); hctx.lineTo(R[i][0],R[i][1]);
-      hctx.closePath(); hctx.fill();
-      hctx.strokeStyle=hctx.fillStyle; hctx.lineWidth=1; hctx.stroke();
-    }
-    // a woven stripe near the end, and the fringe
-    const e=N-3;
-    hctx.strokeStyle="rgba(178,58,40,0.75)"; hctx.lineWidth=Math.max(1.5,len*0.010);
-    hctx.beginPath(); hctx.moveTo(L[e][0],L[e][1]); hctx.lineTo(R[e][0],R[e][1]); hctx.stroke();
-    hctx.strokeStyle="rgba(236,226,204,0.9)"; hctx.lineWidth=1.2;
-    for(let f=0;f<=6;f++){
-      const t=f/6;
-      const ax=L[N][0]+(R[N][0]-L[N][0])*t, ay=L[N][1]+(R[N][1]-L[N][1])*t;
-      const flick=Math.sin(this.phase*1.7+f)*len*0.012;
-      hctx.beginPath(); hctx.moveTo(ax,ay);
-      hctx.lineTo(ax+dx*len*0.035-dy*flick, ay+dy*len*0.035+dx*flick); hctx.stroke();
-    }
-    // a soft edge line so it holds against a white sky
-    hctx.strokeStyle="rgba(120,104,78,0.35)"; hctx.lineWidth=1;
-    hctx.beginPath(); hctx.moveTo(L[0][0],L[0][1]);
-    for(let i=1;i<=N;i++) hctx.lineTo(L[i][0],L[i][1]);
-    hctx.stroke();
-    hctx.restore();
-  }
-};
 
 function drawHUD(t){
   hctx.clearRect(0,0,W,H);
@@ -104,17 +39,6 @@ function drawHUD(t){
     }
     hctx.restore();
   }
-
-  // ---- head lag: the scarf moves with the pilot's head, as the 3D cockpit does ----
-  const ox=clamp(P.vx*0.26,-26,26);
-  const oy=clamp(-P.vy*0.20,-18,18);
-  hctx.save();
-  hctx.translate(ox,oy);
-
-  // ---- flying scarf, top corner ----
-  Scarf.draw(W,H);
-
-  hctx.restore();   // end head-lag transform
 
   // ---- floating score popups ----
   const now=performance.now();
