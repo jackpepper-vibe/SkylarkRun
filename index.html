@@ -56,7 +56,6 @@
   #pilotName.nudge{animation:nudge .3s;}
   @keyframes nudge{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
   #entryRow .btn{font-size:14px;padding:13px 22px;}
-  #boardList li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(86vw,420px);}
   .sub{font-size:clamp(11px,2.3vh,15px);letter-spacing:.32em;text-transform:uppercase;
     color:#fbf4e2;opacity:.9;margin:6px 0 22px;text-shadow:0 2px 4px rgba(20,30,45,.35);}
   .btn{font-size:clamp(16px,3.2vh,21px);font-weight:800;letter-spacing:.10em;
@@ -78,8 +77,40 @@
   #uiBtns button{width:42px;height:42px;border-radius:9px;border:1px solid #8a5a2288;
     background:#fbf4e2cc;color:#5a3a12;font-size:19px;cursor:pointer;}
   .tiny{font-size:11px;color:#fbf4e2;opacity:.75;margin-top:22px;letter-spacing:.05em;}
-  #boardList{margin-top:14px;list-style-position:inside;
-    font:600 15px ui-monospace,Menlo,monospace;color:#fbf4e2;text-align:left;min-height:20px;}
+  
+  /* ---------- the top-ten board, on the start card and the flight report ---------- */
+  .twoCol{display:flex;gap:28px;align-items:center;justify-content:center;width:100%;max-width:1060px;}
+  .colMain{display:flex;flex-direction:column;align-items:center;flex:0 1 560px;min-width:0;}
+  .board{flex:0 1 400px;min-width:0;background:rgba(36,28,18,0.55);border:1px solid rgba(251,244,226,.25);
+    border-radius:12px;padding:10px 12px 8px;color:#fbf4e2;box-shadow:0 6px 18px rgba(20,30,45,0.25);}
+  .boardHead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px;
+    font:800 clamp(12px,2.2vh,14px) ui-monospace,Menlo,monospace;letter-spacing:.2em;text-transform:uppercase;color:#ffd98a;}
+  .boardStatus{font-size:10px;letter-spacing:.06em;text-transform:none;color:#fbf4e2;opacity:.7;font-weight:600;}
+  .lb{width:100%;border-collapse:collapse;font:600 clamp(11px,2.1vh,14px)/1.25 ui-monospace,Menlo,monospace;}
+  .lb th{font-size:.72em;letter-spacing:.12em;text-transform:uppercase;color:#fbf4e2;opacity:.6;
+    text-align:left;padding:2px 6px 4px;border-bottom:1px solid rgba(251,244,226,.2);}
+  .lb td{padding:clamp(1px,.5vh,4px) 6px;white-space:nowrap;text-align:left;}
+  .lb tbody tr:nth-child(odd){background:rgba(251,244,226,.05);}
+  .lb th:nth-child(3),.lb td:nth-child(3),.lb th:nth-child(4),.lb td:nth-child(4){text-align:right;}
+  .lb td:nth-child(1){color:#ffd98a;width:1.6em;}
+  .lb td:nth-child(2){max-width:9.5em;overflow:hidden;text-overflow:ellipsis;}
+  .lb td:nth-child(3){color:#ffd98a;}
+  .lb td:nth-child(5){opacity:.75;font-size:.86em;}
+  .lb tr.gold td:nth-child(1){color:#ffd24a;} .lb tr.silver td:nth-child(1){color:#e4e8ec;} .lb tr.bronze td:nth-child(1){color:#e0a070;}
+  .lb tr.you td{color:#c9ffd0;} .lb tr.you{background:rgba(143,232,160,.14) !important;}
+  .lb td.empty{text-align:center;opacity:.6;padding:14px 6px;}
+  @media (max-width:760px){ .lb th:nth-child(5),.lb td:nth-child(5){display:none;} .twoCol{gap:14px;} }
+  /* a landscape phone: lose the ornaments, keep the button and the board */
+  @media (max-height:430px){
+    #startOverlay .logo,#startOverlay .sub,#footLine,#startOverlay .placard{display:none;}
+    #startOverlay h1{font-size:30px;margin-bottom:8px;}
+    #overOverlay h1{font-size:24px !important;} #overOverlay .sub{margin:2px 0 6px;}
+    #overOverlay .stat{font-size:13px;margin:1px 0;}
+    #overOverlay .btn{padding:10px 20px;font-size:14px;}
+    #pilotName{padding:8px 12px;}
+    .board{padding:6px 10px 4px;}
+  }
+  @media (max-width:560px){ .twoCol{flex-direction:column;} }
 
   /* ---------- the hangar: the live cockpit behind, the choice along the bottom ---------- */
   #hangarOverlay{background:linear-gradient(180deg,rgba(20,16,10,0.55) 0%,rgba(20,16,10,0) 16%,
@@ -151,29 +182,40 @@
 </div>
 
 <div id="startOverlay" class="overlay">
-  <svg class="logo" width="86" height="70" viewBox="0 0 74 60" aria-hidden="true">
-    <path d="M4 34 L70 34 L66 40 L8 40 Z" fill="#fbf4e2"/>
-    <path d="M30 12 L44 12 L48 34 L26 34 Z" fill="#ffd98a"/>
-    <path d="M33 40 L41 40 L39 52 L35 52 Z" fill="#fbf4e2"/>
-    <circle cx="37" cy="22" r="4" fill="#8a5a22"/>
-    <g class="prop"><rect x="35.6" y="4" width="2.8" height="36" rx="1.4" fill="#fbf4e2" opacity=".85"/></g>
-  </svg>
-  <h1>Skylark <span>Run</span></h1>
-  <div class="sub">open cockpit &middot; open country</div>
-  <div class="stat" id="bestLine" style="display:none;margin-bottom:12px;"></div>
-  <div class="placard">
-    <span id="ctrlLine"><b>TILT</b> to bank &middot; dive &middot; climb</span><br>
-    Choose from <b>five aeroplanes</b> &mdash; each flies, and sits, differently<br>
-    A tour of <b>five sectors</b>: new country, new hazards, a new field each time<br>
-    Thread the <b>rings</b>, chain them, and meet each sector's <b>objective</b><br>
-    Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out
+<div class="twoCol">
+<div class="colMain">
+    <svg class="logo" width="86" height="70" viewBox="0 0 74 60" aria-hidden="true">
+      <path d="M4 34 L70 34 L66 40 L8 40 Z" fill="#fbf4e2"/>
+      <path d="M30 12 L44 12 L48 34 L26 34 Z" fill="#ffd98a"/>
+      <path d="M33 40 L41 40 L39 52 L35 52 Z" fill="#fbf4e2"/>
+      <circle cx="37" cy="22" r="4" fill="#8a5a22"/>
+      <g class="prop"><rect x="35.6" y="4" width="2.8" height="36" rx="1.4" fill="#fbf4e2" opacity=".85"/></g>
+    </svg>
+    <h1>Skylark <span>Run</span></h1>
+    <div class="sub">open cockpit &middot; open country</div>
+    <div class="stat" id="bestLine" style="display:none;margin-bottom:12px;"></div>
+    <div class="placard">
+      <span id="ctrlLine"><b>TILT</b> to bank &middot; dive &middot; climb</span><br>
+      Choose from <b>five aeroplanes</b> &mdash; each flies, and sits, differently<br>
+      A tour of <b>five sectors</b>: new country, new hazards, a new field each time<br>
+      Thread the <b>rings</b>, chain them, and meet each sector's <b>objective</b><br>
+      Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out
+    </div>
+    <button id="startBtn" class="btn">&#9654;&ensp;Choose your aircraft</button>
+    <label id="invertRow" class="tiny" style="display:none;align-items:center;justify-content:center;gap:8px;margin-top:12px;cursor:pointer;">
+      <input type="checkbox" id="invertChk" style="width:16px;height:16px;accent-color:#4de8ff;cursor:pointer;">
+      <span>Joystick pitch &mdash; push forward (&uarr; / W) to descend</span>
+    </label>
+    <div class="tiny" id="footLine">Landscape required &middot; headphones recommended &middot; desktop: WASD / arrows</div>
   </div>
-  <button id="startBtn" class="btn">&#9654;&ensp;Choose your aircraft</button>
-  <label id="invertRow" class="tiny" style="display:none;align-items:center;justify-content:center;gap:8px;margin-top:12px;cursor:pointer;">
-    <input type="checkbox" id="invertChk" style="width:16px;height:16px;accent-color:#4de8ff;cursor:pointer;">
-    <span>Joystick pitch &mdash; push forward (&uarr; / W) to descend</span>
-  </label>
-  <div class="tiny" id="footLine">Landscape required &middot; headphones recommended &middot; desktop: WASD / arrows</div>
+  <section class="board" aria-label="Top pilots">
+    <div class="boardHead"><span>Top pilots</span><span class="boardStatus" id="startBoardStatus"></span></div>
+    <table class="lb">
+      <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Sector</th><th>Aircraft</th></tr></thead>
+      <tbody id="startBoard"></tbody>
+    </table>
+  </section>
+</div>
 </div>
 
 <div id="hangarOverlay" class="overlay hidden">
@@ -209,23 +251,32 @@
 </div>
 
 <div id="overOverlay" class="overlay hidden">
-  <h1 style="font-size:36px" id="overTitle">Down in the <span>fields</span></h1>
-  <div class="sub" id="overSub">flight report</div>
-  <div class="stat">Score: <b id="finalScore">0</b></div>
-  <div class="stat">Rings: <b id="finalRings">0</b> &middot; <b id="finalDist">0.0 km</b> &middot; Sector <b id="finalLvl">1</b></div>
-  <div class="stat">Best chain: <b id="finalChain">x0</b></div>
-  <form id="entryRow" autocomplete="off">
-    <input id="pilotName" type="text" maxlength="16" placeholder="Pilot name"
-           aria-label="Pilot name" autocapitalize="words" autocorrect="off" spellcheck="false"
-           enterkeyhint="done">
-    <button id="saveScore" type="submit" class="btn">Save</button>
-  </form>
-  <ol id="boardList"></ol>
-  <div class="tiny" id="boardStatus" style="margin-top:6px"></div>
-  <div style="display:flex;gap:12px;align-items:center;margin-top:18px">
-    <button id="changeBtn" class="btn ghost" style="margin-top:0">Change aircraft</button>
-    <button id="retryBtn" class="btn">Fly again</button>
+<div class="twoCol">
+<div class="colMain">
+    <h1 style="font-size:36px" id="overTitle">Down in the <span>fields</span></h1>
+    <div class="sub" id="overSub">flight report</div>
+    <div class="stat">Score: <b id="finalScore">0</b></div>
+    <div class="stat">Rings: <b id="finalRings">0</b> &middot; <b id="finalDist">0.0 km</b> &middot; Sector <b id="finalLvl">1</b></div>
+    <div class="stat">Best chain: <b id="finalChain">x0</b></div>
+    <form id="entryRow" autocomplete="off">
+      <input id="pilotName" type="text" maxlength="16" placeholder="Pilot name"
+             aria-label="Pilot name" autocapitalize="words" autocorrect="off" spellcheck="false"
+             enterkeyhint="done">
+      <button id="saveScore" type="submit" class="btn">Save</button>
+    </form>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:18px">
+      <button id="changeBtn" class="btn ghost" style="margin-top:0">Change aircraft</button>
+      <button id="retryBtn" class="btn">Fly again</button>
+    </div>
   </div>
+  <section class="board" aria-label="Top pilots">
+    <div class="boardHead"><span>Top pilots</span><span class="boardStatus" id="boardStatus"></span></div>
+    <table class="lb">
+      <thead><tr><th>#</th><th>Pilot</th><th>Score</th><th>Sector</th><th>Aircraft</th></tr></thead>
+      <tbody id="boardList"></tbody>
+    </table>
+  </section>
+</div>
 </div>
 
 <div id="clearOverlay" class="overlay hidden">

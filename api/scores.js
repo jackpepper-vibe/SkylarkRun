@@ -2,7 +2,7 @@
  * Global logbook for Skylark Run.
  *
  *   GET  /api/scores            top pilots, best run each
- *   POST /api/scores            submit a run: { name, score, lvl, rings, chain }
+ *   POST /api/scores            submit a run: { name, score, lvl, rings, chain, aircraft }
  *
  * Backed by Neon Postgres on the free Marketplace plan — the same store the
  * other games use, in its own table. One row per pilot, keyed on a case-folded
@@ -42,6 +42,8 @@ function db() {
     // name holds a case-folded key so one pilot cannot hold several rows;
     // display holds what they actually typed
     await sql`ALTER TABLE skylark_scores ADD COLUMN IF NOT EXISTS display text`;
+    // the aircraft the best run was flown in; older rows simply have none
+    await sql`ALTER TABLE skylark_scores ADD COLUMN IF NOT EXISTS aircraft text`;
     await sql`CREATE INDEX IF NOT EXISTS skylark_scores_score ON skylark_scores (score DESC)`;
     await sql`
       CREATE TABLE IF NOT EXISTS skylark_rate (
@@ -60,6 +62,9 @@ const clean = (v, lo, hi) => {
 };
 
 export const NAME_MAX = 16;
+
+/** The hangar's aircraft ids (src/plane/aircraft.js); the API test keeps the two in step. */
+export const AIRCRAFT = ["skylark", "linnet", "wayfarer", "dragonfly", "sunburst"];
 
 // Pilots type a real name, so accept letters (including accented ones), digits,
 // spaces and light punctuation, and nothing that could be read as markup.
@@ -85,11 +90,13 @@ export function validate(body) {
   const chain = clean(body.chain, 0, 8);
   // a sector is worth a few thousand at best; well over that means a bad actor
   if (score > 90000 * lvl) return { error: "score does not match the sector reached" };
-  return { entry: { name, key: name.toLocaleLowerCase(), score, lvl, rings, chain } };
+  // an unknown aircraft is dropped rather than refused: it is decoration, not the score
+  const aircraft = AIRCRAFT.includes(body.aircraft) ? body.aircraft : null;
+  return { entry: { name, key: name.toLocaleLowerCase(), score, lvl, rings, chain, aircraft } };
 }
 
 const board = (sql) => sql`
-  SELECT COALESCE(display, name) AS name, score, lvl, rings, chain
+  SELECT COALESCE(display, name) AS name, score, lvl, rings, chain, aircraft
   FROM skylark_scores
   ORDER BY score DESC, updated_at ASC
   LIMIT ${TOP}`;
@@ -129,12 +136,13 @@ export default async function handler(req, res) {
       }
       // one row per pilot, replaced only by a better run
       const improved = await sql`
-        INSERT INTO skylark_scores (name, display, score, lvl, rings, chain)
+        INSERT INTO skylark_scores (name, display, score, lvl, rings, chain, aircraft)
         VALUES (${entry.key}, ${entry.name}, ${entry.score}, ${entry.lvl},
-                ${entry.rings}, ${entry.chain})
+                ${entry.rings}, ${entry.chain}, ${entry.aircraft})
         ON CONFLICT (name) DO UPDATE SET
           display = EXCLUDED.display, score = EXCLUDED.score, lvl = EXCLUDED.lvl,
-          rings = EXCLUDED.rings, chain = EXCLUDED.chain, updated_at = now()
+          rings = EXCLUDED.rings, chain = EXCLUDED.chain, aircraft = EXCLUDED.aircraft,
+          updated_at = now()
         WHERE skylark_scores.score < EXCLUDED.score
         RETURNING name`;
       const best = await sql`SELECT score FROM skylark_scores WHERE name = ${entry.key}`;

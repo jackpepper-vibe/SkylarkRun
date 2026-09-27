@@ -191,7 +191,7 @@ document.getElementById("entryRow").addEventListener("submit",async (e)=>{
     return;
   }
   pn.blur();                                  // let the on-screen keyboard go
-  const entry={name,score:G.score,lvl:G.lvl,rings:G.ringsHit,chain:G.bestCombo};
+  const entry={name,score:G.score,lvl:G.lvl,rings:G.ringsHit,chain:G.bestCombo,aircraft:Aircraft.id};
   Save.submit(entry);                         // the local logbook always takes it
   document.getElementById("entryRow").style.display="none";
   chime(980);

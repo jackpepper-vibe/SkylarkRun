@@ -6,13 +6,17 @@
 // no database configured, the game carries on without it. Nothing in the
 // flight loop ever waits on the network.
 import { esc, ordinal } from './util.js';
+import { AIRCRAFT } from './plane/aircraft.js';
+
+/** Both boards show ten: the world's best ten pilots, or this device's ten best runs. */
+const BOARD_SIZE=10;
 
 // ---------- the logbook: scores that survive a reload ----------
 // Storage can throw (private mode, quota, file:// in some browsers), so every
 // access is guarded and the game carries on with an in-memory logbook.
 const Save={
   KEY:"skylarkRun.v1",
-  data:{board:[],bestScore:0,bestSector:1,bestChain:0,bestLanding:"",pilot:"AAA",stars:{}},
+  data:{board:[],bestScore:0,bestSector:1,bestChain:0,bestLanding:"",pilot:"",stars:{}},
   ok:true,
   load(){
     try{
@@ -44,13 +48,13 @@ const Save={
   },
   qualifies(score){
     const b=this.data.board;
-    return score>0&&(b.length<5||score>b[b.length-1].score);
+    return score>0&&(b.length<BOARD_SIZE||score>b[b.length-1].score);
   },
   submit(entry){
     const b=this.data.board;
     b.push(entry);
     b.sort((x,y)=>y.score-x.score);
-    b.length=Math.min(b.length,5);
+    b.length=Math.min(b.length,BOARD_SIZE);
     this.data.pilot=entry.name;
     this.flush();
     return b.indexOf(entry);
@@ -109,36 +113,45 @@ function cleanName(raw){
 }
 
 
+const MEDALS=["gold","silver","bronze"];
+const aircraftName=id=>{ const a=AIRCRAFT.find(x=>x.id===id); return a?a.name:""; };
+/** One board into one table body: rank, pilot, score, sector, aircraft. */
+function fillBoard(tbody,rows,highlight,empty){
+  if(!tbody) return;
+  if(!rows.length){ tbody.innerHTML='<tr><td class="empty" colspan="5">'+empty+'</td></tr>'; return; }
+  tbody.innerHTML=rows.slice(0,BOARD_SIZE).map((e,i)=>{
+    const cls=[MEDALS[i]||"",highlight&&e.name===highlight?"you":""].join(" ").trim();
+    // names come from other players: escaped, always
+    return '<tr'+(cls?' class="'+cls+'"':'')+'><td>'+(i+1)+'</td><td>'+esc(e.name)+'</td><td>'+
+      Math.floor(e.score).toLocaleString()+'</td><td>S'+(e.lvl||1)+'</td><td>'+esc(aircraftName(e.aircraft))+'</td></tr>';
+  }).join("");
+}
+/**
+ * Draw the top ten wherever it is shown — the start card and the flight
+ * report — from the world board when it is reachable and has runs on it, and
+ * from this device's logbook otherwise. `highlight` is a pilot name to pick
+ * out; by default, whoever last saved a score here.
+ */
 function renderBoard(highlight){
-  const ol=document.getElementById("boardList");
   const global=Net.online&&Net.board.length>0;
   const rows=global?Net.board:board;
-  ol.innerHTML=rows.length
-    ? rows.map((e,i)=>{
-        const me=highlight&&e.name===highlight;
-        return "<li"+(me?' style="color:#c9ffd0"':"")+">"+esc(e.name)+" &mdash; "+
-          e.score.toLocaleString()+" &middot; S"+(e.lvl||1)+"</li>";
-      }).join("")
-    : '<li style="opacity:.6;list-style:none">'+
-      (Net.online?"no pilots on the board yet":"no logbook entries yet")+"</li>";
-  const st=document.getElementById("boardStatus");
-  if(st){
-    st.innerHTML=Net.note ? Net.note
-      : (global?"world logbook"
-              :(Net.checked?"your logbook &middot; world board unavailable":"your logbook"));
-  }
+  const me=highlight||Save.data.pilot;
+  const empty=!Net.checked?"loading the board…":(Net.online?"no pilots on the board yet — be the first":"no runs in your logbook yet");
+  fillBoard(document.getElementById("startBoard"),rows,me,empty);
+  fillBoard(document.getElementById("boardList"),rows,me,empty);
+  const where=global?"world · top "+BOARD_SIZE:(Net.checked?"your logbook · world board offline":"your logbook");
+  const st=document.getElementById("startBoardStatus");
+  if(st) st.textContent=where;
+  // the flight report also carries what just happened to a submitted score
+  const rt=document.getElementById("boardStatus");
+  if(rt) rt.innerHTML=Net.note||esc(where);
   const bl=document.getElementById("bestLine");
   if(bl){
     const d=Save.data;
-    const parts=[];
-    if(d.bestScore) parts.push("Best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+
-      d.bestSector+"</b> &middot; chain <b>x"+d.bestChain+"</b>");
-    if(Net.online&&Net.board.length)
-      parts.push("World leader <b>"+esc(Net.board[0].name)+"</b> &middot; <b>"+
-        Net.board[0].score.toLocaleString()+"</b>");
-    bl.innerHTML=parts.join("<br>");
-    bl.style.display=parts.length?"block":"none";
+    bl.innerHTML=d.bestScore?"Your best <b>"+d.bestScore.toLocaleString()+"</b> &middot; sector <b>"+
+      d.bestSector+"</b> &middot; chain <b>x"+d.bestChain+"</b>":"";
+    bl.style.display=d.bestScore?"block":"none";
   }
 }
 
-export { Save, Net, renderBoard, cleanName, NAME_MAX };
+export { BOARD_SIZE, Save, Net, renderBoard, cleanName, NAME_MAX };

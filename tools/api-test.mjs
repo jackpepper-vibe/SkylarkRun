@@ -4,7 +4,7 @@
  *
  *   node tools/api-test.mjs
  */
-import handler, { validate, cleanName } from "../api/scores.js";
+import handler, { validate, cleanName, AIRCRAFT } from "../api/scores.js";
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -40,6 +40,17 @@ check("chain and rings are clamped, not trusted", (() => {
   return v.entry.rings === 999 && v.entry.chain === 8;
 })());
 check("garbage body does not throw", !!validate({}).error && !!validate({ name: 1, score: "x" }).error);
+check("the aircraft is kept when it is one of the hangar's",
+  validate({ name: "Kevin", score: 100, lvl: 1, aircraft: "linnet" }).entry.aircraft === "linnet");
+check("an unknown aircraft is dropped, not trusted, and the run still counts",
+  validate({ name: "Kevin", score: 100, lvl: 1, aircraft: "<x>" }).entry.aircraft === null);
+{
+  // the endpoint's list and the hangar's must name the same aeroplanes
+  const src = (await import("fs")).readFileSync(new URL("../src/plane/aircraft.js", import.meta.url), "utf8");
+  const ids = [...src.matchAll(/^\s*id: "([a-z]+)"/gm)].map(m => m[1]);
+  check("the endpoint knows every aircraft in the hangar",
+    ids.length === AIRCRAFT.length && ids.every(i => AIRCRAFT.includes(i)), ids.join(","));
+}
 
 // --- the unprovisioned path ---
 const res = () => {

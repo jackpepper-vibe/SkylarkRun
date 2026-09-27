@@ -187,7 +187,7 @@ farms, boulders and orchards, and its own colours on the far ridges.
 
 Two of them, and the game never waits on either.
 
-**Yours** — top five scores, best score, furthest sector and longest chain — is
+**Yours** — top ten scores, best score, furthest sector and longest chain — is
 kept in `localStorage` and shown on the title card. Every access is guarded, so
 private browsing or a full quota just means it stays in memory for the session.
 
@@ -196,7 +196,15 @@ private browsing or a full quota just means it stays in memory for the session.
 | | |
 | --- | --- |
 | `GET /api/scores` | the top ten pilots, best run each |
-| `POST /api/scores` | submit `{ name, score, lvl, rings, chain }` |
+| `POST /api/scores` | submit `{ name, score, lvl, rings, chain, aircraft }` |
+
+The top ten is on the start card, beside the title, and in the flight report
+beside the name entry: rank (gold, silver, bronze), pilot, score, the sector
+reached and the aircraft it was flown in, with your own row picked out. When
+the world board is unreachable the same table shows this device's ten best
+runs instead, and says so. The aircraft is checked against the hangar's ids
+(the API test keeps the two lists in step); an unknown one is dropped, not
+refused, and rows from before the column existed simply show none.
 
 One row per pilot, keyed on a case-folded pilot name and only overwritten by a
 better run (`ON CONFLICT ... WHERE score < EXCLUDED.score`), so the board shows
