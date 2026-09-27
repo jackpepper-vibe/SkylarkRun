@@ -15,6 +15,8 @@ import { overlays, show, hideAll } from './overlays.js';
 import { Active } from './active.js';
 import { updateDying } from './damage.js';
 import { Quality } from './quality.js';
+import { Hangar } from './hangar.js';
+import { Aircraft } from './plane/aircraft.js';
 "use strict";
 
 // The aeroplane, behind the Craft interface the engine drives. It is imported
@@ -117,6 +119,7 @@ window.addEventListener("resize",checkOrient);
 window.addEventListener("orientationchange",checkOrient);
 
 async function startFlow(){
+  Hangar.close();
   initAudio();
   resumeAudio();
   if(!CAN_TILT){
@@ -144,7 +147,7 @@ async function startFlow(){
 
   if(CAN_TILT)return;
 
-  document.getElementById("startBtn").innerHTML="&#9654;&ensp;Fly";
+  Hangar.setFlyLabel("&#9654;&ensp;Fly");
   document.getElementById("ctrlLine").innerHTML=
     "<b>ARROWS</b> or <b>WASD</b> to bank &middot; dive &middot; climb";
   document.getElementById("footLine").innerHTML=
@@ -154,7 +157,23 @@ async function startFlow(){
   if(recal)recal.style.display="none";
 })();
 
-document.getElementById("startBtn").addEventListener("click",startFlow);
+// ---------- the hangar ----------
+// The start card leads into the hangar, and the hangar's Fly button is the one
+// that asks for tilt and fullscreen — both need the tap that happens there.
+// The world keeps flying itself behind, so each cockpit is seen in the air.
+function toMenu(){
+  Craft.reset();
+  popups.length=0;
+  Game.attractOn=true;
+  Game.state=S.MENU;
+  document.getElementById("uiBtns").style.display="none";
+}
+function openHangar(){
+  resumeAudio();
+  Hangar.open(startFlow,()=>{ Hangar.close(); show("startOverlay"); renderBoard(); });
+}
+document.getElementById("startBtn").addEventListener("click",()=>{ initAudio(); openHangar(); });
+document.getElementById("changeBtn").addEventListener("click",()=>{ toMenu(); openHangar(); });
 document.getElementById("retryBtn").addEventListener("click",()=>{
   calibrate();Craft.reset();hideAll();Game.state=Craft.startState;Game.readyT=Craft.startHold;checkOrient();
 });
@@ -234,10 +253,7 @@ document.getElementById("backBtn").addEventListener("click",()=>{
   setMuted(false);
   resumeAudio();
   startLoop();
-  Craft.reset();
-  popups.length=0;
-  Game.attractOn=true;
-  Game.state=S.MENU;
+  toMenu();
   show("startOverlay");
   renderBoard();
   Net.load();
@@ -312,7 +328,17 @@ window.SKY={
   gfx:()=>({ renderer, scene, camera }),
   /** The graphics tier: read it, or force one (0 low .. 2 high). */
   quality:()=>({ tier:Quality.tier, name:Quality.name, software:Quality.software }),
-  setQuality(t){ Quality.set(t); }
+  setQuality(t){ Quality.set(t); },
+  /** Choose an aircraft by id, as the hangar does; returns the one now selected. */
+  setAircraft(id){ Aircraft.select(id); return Aircraft.id; },
+  aircraft:()=>Aircraft.id,
+  /** Start sector n at its holding point, as though the tour had been flown to it. */
+  toSector(n){ Craft.reset(); for(let i=1;i<n;i++) Craft.nextSector();
+               Game.attractOn=false; hideAll();
+               document.getElementById("uiBtns").style.display="flex";
+               Game.state=Craft.startState; Game.readyT=0; },
+  /** Open the hangar over the attract flight. */
+  hangar(){ toMenu(); openHangar(); }
 };
 
 // ---------- PWA manifest (inline) ----------

@@ -4,14 +4,15 @@
 // all synthesised through the Web Audio API rather than loaded as files.
 // Everything hangs off one master gain so muting is a single switch.
 import { clamp, midiF } from './util.js';
-// The engine note rides airspeed as a fraction of the envelope. Both craft
-// define SPEED_MAX; the plane's is the reference the mix was tuned against.
-import { SPEED_MAX } from './plane/config.js';
+// The engine note rides airspeed, shaped by the aircraft's own engine: a lumpy
+// inline four in the old types, a flat four muffled by a cabin, a two-stroke
+// buzzing away behind a microlight's seat.
+import { Aircraft } from './plane/aircraft.js';
 import { S, Game, P, G } from './state.js';
 
 // ---------- audio: radial engine, slipstream, and a bright little score ----------
 let AC=null,master=null,muted=false,noiseBuf=null;
-let engSaw=null,engLfo=null,engGain=null,windGain=null,windFilter=null,rainGain=null,musicGain=null;
+let engSaw=null,engLfo=null,engLp=null,engGain=null,windGain=null,windFilter=null,rainGain=null,musicGain=null;
 const MUSIC={next:0,step:0};
 
 function initAudio(){
@@ -28,7 +29,7 @@ function initAudio(){
     engLfo=AC.createOscillator();engLfo.type="square";engLfo.frequency.value=38;
     const lfoG=AC.createGain();lfoG.gain.value=0.30;
     engLfo.connect(lfoG);lfoG.connect(chop.gain);
-    const engLp=AC.createBiquadFilter();engLp.type="lowpass";engLp.frequency.value=900;
+    engLp=AC.createBiquadFilter();engLp.type="lowpass";engLp.frequency.value=900;
     engGain=AC.createGain();engGain.gain.value=0.10;
     engSaw.connect(chop);chop.connect(engLp);engLp.connect(engGain);engGain.connect(master);
     // slipstream past an open cockpit
@@ -51,12 +52,13 @@ function initAudio(){
 function audioTick(){
   if(!AC||!engSaw)return;
   const t=AC.currentTime;
-  const thr=Game.state===S.ROLLOUT?0.35:1;
-  engSaw.frequency.setTargetAtTime(72+P.speed*0.62,t,0.20);
-  engLfo.frequency.setTargetAtTime(26+P.speed*0.26,t,0.25);
-  engGain.gain.setTargetAtTime(0.10*thr,t,0.3);
+  const thr=Game.state===S.ROLLOUT?0.35:1, spec=Aircraft.spec, e=spec.engine;
+  engSaw.frequency.setTargetAtTime(e.base+P.speed*e.perSpeed,t,0.20);
+  engLfo.frequency.setTargetAtTime(e.fire+P.speed*e.firePer,t,0.25);
+  engLp.frequency.setTargetAtTime(e.lowpass,t,0.3);
+  engGain.gain.setTargetAtTime(e.gain*thr,t,0.3);
   windFilter.frequency.setTargetAtTime(420+P.speed*5.5,t,0.3);
-  windGain.gain.setTargetAtTime(0.018+P.speed/SPEED_MAX*0.055,t,0.3);
+  windGain.gain.setTargetAtTime((0.018+P.speed/spec.speedMax*0.055)*e.wind,t,0.3);
   // generative score: I - V - vi - IV in D major, plucked
   const spb=60/104, s16=spb/4;
   const CH=[[38,50,54,57],[45,57,61,64],[42,54,57,61],[43,55,59,62]];

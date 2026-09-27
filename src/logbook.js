@@ -12,7 +12,7 @@ import { esc, ordinal } from './util.js';
 // access is guarded and the game carries on with an in-memory logbook.
 const Save={
   KEY:"skylarkRun.v1",
-  data:{board:[],bestScore:0,bestSector:1,bestChain:0,bestLanding:"",pilot:"AAA"},
+  data:{board:[],bestScore:0,bestSector:1,bestChain:0,bestLanding:"",pilot:"AAA",stars:{}},
   ok:true,
   load(){
     try{
@@ -36,6 +36,11 @@ const Save={
     d.bestSector=Math.max(d.bestSector,g.lvl);
     d.bestChain=Math.max(d.bestChain,g.bestCombo);
     this.flush();
+  },
+  /** The best stars won on a sector of the tour, by its key. */
+  noteStars(key,n){
+    const s=this.data.stars||(this.data.stars={});
+    if(!(s[key]>=n)){ s[key]=n; this.flush(); }
   },
   qualifies(score){
     const b=this.data.board;

@@ -2,28 +2,33 @@
 //
 // The world the plane flies over: the height field and its tiles, woodland and
 // hedgerow scatter, the ring course, fuel balloons, the hazards that bite, and
-// the airfield that ends every sector.
+// the airfields that start and end every sector.
 //
 // Damage is imported rather than raised as an event: a collision here calls
 // crash() directly. The two modules import each other, which ES modules allow
 // because neither touches the other at evaluation time — only inside handlers.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SUNDIR, Sun } from '../sun.js';
 import { crash, birdStrike } from '../damage.js';
-import { applyWeather } from '../weather.js';
-import { clamp, hash, hash2, lerp, lineGeo, mulberry32, shade, smooth, vnoise } from '../util.js';
+import { WEATHERS, applyWeather } from '../weather.js';
+import { clamp, hash, lineGeo, mulberry32 } from '../util.js';
 import { scene, renderer } from '../view.js';
-import { CANOPY_H, PR, VIEW } from './config.js';
+import { PR, VIEW } from './config.js';
 import { SHADOW, TODS, Sky } from './sky.js';
-import { Models, makeHangar, makeTower, makeParkedPlane } from './models.js';
-import { THEMES, TH, setTerrainTheme, af, baseH, groundH, landuse, isWood, onField, clearanceH,
+import { Models } from './models.js';
+import { THEMES, TH, setTerrainTheme, af, baseH, groundH, isWood, onField, clearanceH,
          CELL, KIND, CROP, cellPlan, Terrain } from './terrain.js';
-import { G, Game, P, S, TO, popup } from '../state.js';
+import { G, Game, P, S, TO, award, popup } from '../state.js';
+import { HAZARDS, Tour } from './sectors.js';
+import { Aircraft } from './aircraft.js';
+import { LAYOUTS, paintRunway } from './airfields.js';
 import { chime, radioCall, thud } from '../audio.js';
 
 // ---------- distant ridge backdrops (two parallax layers) ----------
-function makeRidgeTexture(seed,col,snow){
-  const c=document.createElement("canvas"); c.width=1024; c.height=160;
+// Each layer keeps its canvas, so a new sector repaints the hills in the new
+// country's colours (and snows them or not) without making a new texture.
+function paintRidge(c,seed,col,snow){
   const x=c.getContext("2d");
   x.clearRect(0,0,1024,160);
   x.fillStyle=col;
@@ -43,25 +48,32 @@ function makeRidgeTexture(seed,col,snow){
     x.fillStyle=g; x.fillRect(0,0,1024,160);
     x.globalCompositeOperation="source-over";
   }
+}
+const ridges=[];
+function addRidge(seed,dist,h,fac){
+  const c=document.createElement("canvas"); c.width=1024; c.height=160;
   const t=new THREE.CanvasTexture(c);
   t.wrapS=THREE.RepeatWrapping; t.repeat.set(4,1);
   t.colorSpace=THREE.SRGBColorSpace;
-  return t;
-}
-const ridges=[];
-function addRidge(tex,dist,h,alpha,fac){
   const m=new THREE.Mesh(new THREE.PlaneGeometry(dist*5.0,h),
-    new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:alpha,
-      depthWrite:false}));
+    new THREE.MeshBasicMaterial({map:t,transparent:true,depthWrite:false}));
   m.renderOrder=-1;
-  m.userData={dist,h,fac};
+  m.userData={dist,h,fac,seed,canvas:c};
   scene.add(m); ridges.push(m);
   return m;
 }
 // Painted in the hills' own colour; the atmosphere, not the paint, is what
 // turns them blue with distance.
-addRidge(makeRidgeTexture(21,"#5d7488",true), 3600, 620, 1.0, 0.90);
-addRidge(makeRidgeTexture(77,"#4f6a58",false),2700, 430, 1.0, 0.85);
+addRidge(21,3600,620,0.90);
+addRidge(77,2700,430,0.85);
+/** Repaint both layers for a theme: [[colour, snow], [colour, snow]], far first. */
+function paintRidges(spec){
+  ridges.forEach((m,i)=>{
+    const u=m.userData;
+    paintRidge(u.canvas,u.seed,spec[i][0],spec[i][1]);
+    m.material.map.needsUpdate=true;
+  });
+}
 
 
 // ---------- contact shadows ----------
@@ -151,8 +163,9 @@ const Scatter={
   m:{}, n:{}, plan:{},
   // instances per kind, near the aircraft and beyond it
   caps:{oak0:[420,700],oak1:[420,700],poplar:[140,200],pine0:[360,560],pine1:[360,560],
-        hedge:[1800,3800],cottage:[30,70],farmhouse:[30,70],barn:[40,90],redBarn:[40,90],
-        shed:[30,80],rock:[120,220],hay:[160,220]},
+        hedge:[1800,3800],wall:[1800,3800],fruit:[700,1400],
+        cottage:[30,70],farmhouse:[30,70],barn:[40,90],redBarn:[40,90],
+        shed:[30,80],rock:[160,320],hay:[160,220]},
   shadeCap:2400,
   near:{x0:0,x1:0,z0:0,z1:0},
   dummy:new THREE.Object3D(), col:new THREE.Color(),
@@ -205,15 +218,16 @@ const Scatter={
     m.setColorAt(i,this.col);
     this.n[key]=i+1;
   },
-  // Which tree grows here: the uplands run to pine, the lowlands to oak.
+  // Which tree grows here is the theme's call: the uplands run to pine, the
+  // lowland hedgerows to oak and poplar.
   tree(x,z,r,hedgerow){
     const y=groundH(x,z);
     if(y<TH.water+1) return;
-    const upland=Game.curTheme===1, k=r();
+    const k=r();
     let key;
-    if(hedgerow) key=k<0.22?"poplar":(k<0.61?"oak0":"oak1");
-    else if(upland) key=k<0.62?(k<0.31?"pine0":"pine1"):(k<0.81?"oak0":"oak1");
-    else key=k<0.12?(k<0.06?"pine0":"pine1"):(k<0.56?"oak0":"oak1");
+    if(hedgerow) key=k<TH.poplar?"poplar":(k<TH.poplar+(1-TH.poplar)*0.5?"oak0":"oak1");
+    else if(k<TH.pine) key=k<TH.pine*0.5?"pine0":"pine1";
+    else key=k<TH.pine+(1-TH.pine)*0.5?"oak0":"oak1";
     const s=0.78+r()*0.55;
     const tints=[0xffffff,0xecf4dc,0xfff6dc,0xe0ece0,0xf6fae6,0xd8e6d0];
     this.put(key,x,y-0.3,z,s,s*(0.9+r()*0.25),s,r()*6.3,tints[(r()*tints.length)|0]);
@@ -249,19 +263,35 @@ const Scatter={
           if(y>TH.water+1) this.put("hay",x,y+0.75,z,1.4,0.8,0.8,ry+(r()-0.5)*0.4);
         }
       }
-      if(r()<0.12) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
+      if(r()<0.12*TH.farms) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
       if(r()<0.18) this.hedgerowTree(bx,bz,p,r);
     }else{                                              // pasture: parkland trees and stone
+      if(r()<TH.orchard){ this.orchard(bx,bz,p,r); return; }
       if(r()<0.55) this.tree(bx+8+r()*(CELL-16), bz+8+r()*(CELL-16), r);
       if(r()<0.35) this.hedgerowTree(bx,bz,p,r);
-      if(r()<0.25){
+      if(r()<TH.rocks){
         const x=bx+r()*CELL, z=bz+r()*CELL, y=groundH(x,z);
         if(y>TH.water+1){
           const s=1.2+r()*3.2;
           this.put("rock",x,y+s*0.25,z,s,s*0.7,s*1.1,r()*3, r()<0.5?0xffffff:0xe8e2d8);
         }
       }
-      if(r()<0.07) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
+      if(r()<0.07*TH.farms) this.farmstead(bx+30+r()*35, bz+30+r()*35, r);
+    }
+  },
+  // An orchard: fruit trees in rows along the field's own grain, clear of
+  // its edges so the hedge and the headland still show.
+  orchard(bx,bz,p,r){
+    const ca=Math.cos(p.angle), sa=Math.sin(p.angle), cx=bx+CELL/2, cz=bz+CELL/2;
+    const tints=[0xffffff,0xf2f6e0,0xe6f0d8];
+    for(let i=-4;i<=4;i++) for(let j=-4;j<=4;j++){
+      const u=i*9.5+(r()-0.5)*0.8, v=j*9.5+(r()-0.5)*0.8;
+      const x=cx+u*ca-v*sa, z=cz+u*sa+v*ca;
+      if(x<bx+6||x>bx+CELL-6||z<bz+6||z>bz+CELL-6) continue;
+      const y=groundH(x,z);
+      if(y<TH.water+1) continue;
+      const s=0.85+r()*0.3;
+      this.put("fruit",x,y-0.1,z,s,s,s,r()*6.3,tints[(r()*3)|0]);
     }
   },
   // A hedge along one edge of a cell, from its corner in direction (dx, dz),
@@ -275,6 +305,11 @@ const Scatter={
         const t=t0+i*L;
         const y=Math.min(groundH(bx+dx*t,bz+dz*t),groundH(bx+dx*(t+L),bz+dz*(t+L)));
         if(y<TH.water+1) continue;
+        if(TH.walls){                                    // dry stone, in the hill country
+          const tint=[0xffffff,0xf0ece4,0xe4e2dc][(r()*3)|0];
+          this.put("wall",bx+dx*t,y-0.15,bz+dz*t,L,1.25+r()*0.2,1.2,dz?-Math.PI/2:0,tint);
+          continue;
+        }
         const tint=[0xffffff,0xeef4e2,0xf6f2dc][(r()*3)|0];
         this.put("hedge",bx+dx*t,y-0.2,bz+dz*t,L,2.3+r()*0.9,2.4+r()*0.5,dz?-Math.PI/2:0,tint);
       }
@@ -460,7 +495,7 @@ const Rings={
       const tall=this.seq%5===0;
       // gold gates: worth treble, and never on the easy line — down in the
       // hollows, out on a limb, close enough to the ground to make you think
-      const gold=!tall&&this.seq>2&&hash(this.seq*13.7+4.1)<0.26;
+      const gold=!tall&&this.seq>2&&hash(this.seq*13.7+4.1)<Tour.cur.goldRate;
       const x=coursePathX(z)+(hash(this.seq*3.7)-0.5)*(gold?300:70);
       const g=groundH(x,z);
       const y=tall ? g+110+hash(this.seq*5.1)*70
@@ -520,11 +555,13 @@ const Rings={
           r.torus.material.color.set(0x8fe8a0);
           G.combo=Math.min(8,G.combo+1);
           G.bestCombo=Math.max(G.bestCombo,G.combo);
+          G.secChain=Math.max(G.secChain,G.combo);
           G.ringsHit++;
           let pts=120*G.combo*(r.gold?3:1);
-          let txt=(r.gold?"GOLD GATE +":"RING +")+pts;
-          if(d<4.5){ pts+=r.gold?240:80; txt="BULLSEYE +"+pts; }
-          G.score+=pts;
+          const bull=d<4.5;
+          if(bull) pts+=r.gold?240:80;
+          const got=award(pts);
+          const txt=(bull?"BULLSEYE +":(r.gold?"GOLD GATE +":"RING +"))+got;
           if(r.gold) G.goldHit++;
           popup(txt+(G.combo>1?"   x"+G.combo:""));
           if(r.gold){ chime(1040); setTimeout(()=>chime(1560),90); }
@@ -655,6 +692,7 @@ const balloonTexs=(()=>{
     return t;
   });
 })();
+const MIN_UNDER=4;           // metres of air under the wheels for a pass under the wires to count
 const Haz={
   lines:[], masts:[], turbines:[], balloons:[], flocks:[],
   nextZ:0,
@@ -888,19 +926,30 @@ const Haz={
       for(const h of l){ h.active=false; h.g.visible=false; }
     this.nextZ=P.z-1400;
   },
+  // Strung along the course at the sector's density, drawn only from the
+  // sector's own kinds of hazard, in proportion to their base weights.
   spawnAhead(){
-    if(G.lvl<2) return;
+    const sec=Tour.cur, kinds=sec.hazards;
+    if(!kinds.length||sec.density<=0) return;
+    let total=0;
+    for(const k of kinds) total+=HAZARDS[k];
     while(this.nextZ>P.z-VIEW){
       const z=this.nextZ;
       if(Airfield.reserved(z)) break;
-      const r=Math.random();
-      const tier=Math.min(1,(G.lvl-1)/4);
-      if(r<0.30){ const h=this.freeOf(this.lines,()=>this.makeLine(),6);      if(h) this.placeLine(h,z); }
-      else if(r<0.52){ const h=this.freeOf(this.masts,()=>this.makeMast(),8);  if(h) this.placeMast(h,z); }
-      else if(r<0.72){ const h=this.freeOf(this.turbines,()=>this.makeTurbine(),10); if(h) this.placeTurbine(h,z); }
-      else if(r<0.88){ const h=this.freeOf(this.balloons,()=>this.makeBalloon(),8); if(h) this.placeBalloon(h,z); }
-      else{ const h=this.freeOf(this.flocks,()=>this.makeFlock(),6); if(h) this.placeFlock(h,z); }
-      this.nextZ-=(520-260*tier)+Math.random()*340;
+      let pick=Math.random()*total, kind=kinds[kinds.length-1];
+      for(const k of kinds){ pick-=HAZARDS[k]; if(pick<=0){ kind=k; break; } }
+      this.spawn(kind,z);
+      this.nextZ-=Math.max(260,780-420*sec.density)+Math.random()*340;
+    }
+  },
+  spawn(kind,z){
+    let h;
+    switch(kind){
+      case "lines":    h=this.freeOf(this.lines,()=>this.makeLine(),6);        if(h) this.placeLine(h,z); break;
+      case "masts":    h=this.freeOf(this.masts,()=>this.makeMast(),8);        if(h) this.placeMast(h,z); break;
+      case "turbines": h=this.freeOf(this.turbines,()=>this.makeTurbine(),10); if(h) this.placeTurbine(h,z); break;
+      case "balloons": h=this.freeOf(this.balloons,()=>this.makeBalloon(),8);  if(h) this.placeBalloon(h,z); break;
+      case "flocks":   h=this.freeOf(this.flocks,()=>this.makeFlock(),6);      if(h) this.placeFlock(h,z); break;
     }
   },
   clearNear(z,rad){
@@ -919,7 +968,14 @@ const Haz={
       if(P.pz>h.z&&P.z<=h.z){
         const dxl=Math.abs(P.x-h.x);
         if(dxl<h.span*0.5){
-          if(Math.abs(P.y-this.cableY(h,P.x))<7){ crash("CABLE STRIKE"); return; }
+          const cy=this.cableY(h,P.x);
+          if(Math.abs(P.y-cy)<7){ crash("CABLE STRIKE"); return; }
+          // under the lowest cable, between the towers, and still flying
+          if(P.y<cy-7&&P.y>groundH(P.x,P.z)+MIN_UNDER&&Game.state===S.PLAY){
+            G.under++;
+            popup("UNDER THE WIRES +"+award(300));
+            chime(640); setTimeout(()=>chime(960),90);
+          }
         }
         if(Math.abs(dxl-h.span*0.5)<5&&P.y<h.h+6){ crash("PYLON STRIKE"); return; }
       }
@@ -973,125 +1029,153 @@ const Haz={
   }
 };
 
-// ---------- the airfield: the finale of every sector ----------
-function makeRunwayTexture(){
-  // painted at twice the layout's resolution: the strip is 64 m across and
-  // seen from 2 m up on the roll, where every texel shows
-  const c=document.createElement("canvas"); c.width=512; c.height=2048;
+// ---------- the airfield: the start and the finale of every sector ----------
+// Every layout (airfields.js) is assembled once, on first use, into a group of
+// its own: the painted strip, its lights and landing aids, the windsock and
+// the buildings, baked into a single mesh. Only one field is live at a time —
+// the departure strip is let go before the arrival field is put down — so
+// changing field is a matter of which group `af` points at.
+const bakedMat=new THREE.MeshLambertMaterial({vertexColors:true});
+// Glazing: dark by day, lamp-lit at dusk. One material for every field.
+const glassMat=new THREE.MeshBasicMaterial({color:0x1c2630});
+const GLASS_DAY=new THREE.Color(0x1c2630), GLASS_NIGHT=new THREE.Color().setRGB(2.4,1.7,0.9);
+const surfaceTex={};
+/** A tileable apron surface, 16 m to the repeat. */
+function apronTexture(surface){
+  if(surfaceTex[surface]) return surfaceTex[surface];
+  const c=document.createElement("canvas"); c.width=c.height=256;
   const x=c.getContext("2d");
-  x.scale(2,2);
-  x.fillStyle="#4a4a4c"; x.fillRect(0,0,256,1024);
-  for(let i=0;i<9000;i++){                                   // asphalt grain
-    x.fillStyle=`rgba(${80+hash(i)*50|0},${80+hash(i*3)*50|0},${82+hash(i*7)*50|0},0.22)`;
-    x.fillRect(hash(i*11)*256,hash(i*13)*1024,1,1);
+  const base=surface==="concrete"?"#a4a29a":"#525254";
+  x.fillStyle=base; x.fillRect(0,0,256,256);
+  for(let i=0;i<5000;i++){
+    const k=hash(i*1.7);
+    x.fillStyle=k<0.5?"rgba(0,0,0,0.10)":"rgba(255,255,255,0.08)";
+    x.fillRect(hash(i*3.1)*256,hash(i*5.3)*256,1+hash(i)*2,1+hash(i*9.1)*2);
   }
-  x.globalAlpha=0.10;                                        // patched and weathered
-  for(let i=0;i<40;i++){
-    x.fillStyle=hash(i*17)<0.5?"#3a3a3c":"#5a5a58";
-    x.fillRect(hash(i*19)*230,hash(i*23)*1000,10+hash(i*29)*30,20+hash(i*31)*70);
+  if(surface==="concrete"){
+    x.fillStyle="rgba(40,38,34,0.5)";
+    x.fillRect(0,0,256,3); x.fillRect(0,0,3,256); x.fillRect(0,127,256,2); x.fillRect(127,0,2,256);
   }
-  x.globalAlpha=1;
-  x.fillStyle="#3e3e40";                                     // rubber in the touchdown zones
-  x.globalAlpha=0.5;
-  x.fillRect(30,150,196,90); x.fillRect(30,784,196,90);
-  x.globalAlpha=1;
-  x.fillStyle="#e8e4d8";
-  for(let i=0;i<8;i++){                                      // threshold piano keys
-    x.fillRect(24+i*27,26,18,74);
-    x.fillRect(24+i*27,924,18,74);
-  }
-  for(let y=140;y<884;y+=64) x.fillRect(124,y,8,38);         // centreline
-  x.fillRect(18,26,7,972); x.fillRect(231,26,7,972);         // edge lines
-  for(const y of [150,150+58,784,784+58]){                   // touchdown zone bars
-    x.fillRect(52,y,12,44); x.fillRect(192,y,12,44);
-  }
-  x.fillRect(74,262,14,54); x.fillRect(168,262,14,54);       // aiming points
-  x.fillRect(74,708,14,54); x.fillRect(168,708,14,54);
-  // runway designators: the plane's UVs mirror in u, so pre-mirror the glyphs
-  x.save();
-  x.translate(128,880); x.scale(-1,1);
-  x.font="800 74px ui-monospace,Menlo,monospace";
-  x.textAlign="center"; x.textBaseline="middle"; x.fillStyle="#e8e4d8";
-  x.fillText("18",0,0);
-  x.restore();
-  x.save();
-  x.translate(128,144); x.scale(1,-1);
-  x.font="800 74px ui-monospace,Menlo,monospace";
-  x.textAlign="center"; x.textBaseline="middle"; x.fillStyle="#e8e4d8";
-  x.fillText("36",0,0);
-  x.restore();
   const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
   t.colorSpace=THREE.SRGBColorSpace;
-  t.anisotropy=renderer.capabilities.getMaxAnisotropy();
-  return t;
+  t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+  return surfaceTex[surface]=t;
 }
 const Airfield={
-  build(){
+  built:{},
+  night:0,
+  /** Build a layout's group. Returns the handles `af` is pointed at. */
+  assemble(id){
+    const L=LAYOUTS[id];
     const g=new THREE.Group();
-    // no apron mesh: the ground shader mows the field inside af's footprint
-    const strip=new THREE.Mesh(new THREE.PlaneGeometry(af.wid,af.len),
-      new THREE.MeshLambertMaterial({map:makeRunwayTexture()}));
-    strip.rotation.x=-Math.PI/2; strip.position.y=0.18;
+    const b={id,layout:L,group:g,strobes:[],papi:[],edge:null,approach:null,windsockPivot:null};
+    const strip=new THREE.Mesh(new THREE.PlaneGeometry(L.wid,L.len),
+      new THREE.MeshLambertMaterial({map:paintRunway(L.surface,L.len,L.wid,L.rwy)}));
+    strip.rotation.x=-Math.PI/2; strip.position.y=0.18; strip.receiveShadow=true;
     g.add(strip);
-    // runway edge lights
-    const edgePos=[];
-    for(let z=-af.len/2;z<=af.len/2;z+=50){
-      edgePos.push(-af.wid/2-1.5,0.9,z, af.wid/2+1.5,0.9,z);
+    const glowPts=(pos,size,color)=>new THREE.Points(lineGeo(pos),new THREE.PointsMaterial({color,
+      map:glowTex,size,sizeAttenuation:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+    if(L.lights){
+      // edge lights, and the strobes that run in toward the threshold
+      const edgePos=[];
+      for(let z=-L.len/2;z<=L.len/2;z+=50) edgePos.push(-L.wid/2-1.5,0.9,z, L.wid/2+1.5,0.9,z);
+      b.edge=glowPts(edgePos,2.6,0xfff0c0);
+      g.add(b.edge);
+      for(let i=0;i<8;i++){
+        const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xffffff,
+          blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));
+        s.scale.set(11,11,1);
+        s.position.set(0,3+i*0.4,L.len/2+40+i*62);
+        g.add(s); b.strobes.push(s);
+      }
     }
-    // round glows rather than square points, which read as white boxes up close
-    af.edge=new THREE.Points(lineGeo(edgePos),new THREE.PointsMaterial({color:0xfff0c0,
-      map:glowTex,size:2.6,sizeAttenuation:true,transparent:true,
-      blending:THREE.AdditiveBlending,depthWrite:false}));
-    g.add(af.edge);
-    // approach strobes running toward the threshold
-    af.strobes=[];
-    for(let i=0;i<8;i++){
-      const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xffffff,
-        blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));
-      s.scale.set(11,11,1);
-      s.position.set(0,3+i*0.4,af.len/2+40+i*62);
-      g.add(s); af.strobes.push(s);
+    if(L.approachLights){
+      // crossbars on poles out along the extended centreline, and a wide bar at 150 m
+      const pos=[];
+      for(let i=1;i<=10;i++){
+        const z=L.len/2+i*30, half=i===5?15:4.5;
+        for(let u=-half;u<=half+0.01;u+=half/(i===5?5:2)) pos.push(u,2.5+i*0.25,z);
+      }
+      b.approach=glowPts(pos,3.2,0xffe8b8);
+      g.add(b.approach);
     }
-    // PAPI: four lights that read your glide path back to you
-    af.papi=[];
+    // PAPI: four lights that read your glide path back to you, on the open side
+    const papiX=-L.side*(L.wid/2+16);
     for(let i=0;i<4;i++){
-      const m=new THREE.Mesh(new THREE.BoxGeometry(4,3,3),
-        new THREE.MeshBasicMaterial({color:0xffffff}));
-      m.position.set(-af.wid/2-16,2.5,af.len/2-190+i*9);
-      g.add(m); af.papi.push(m);
+      const m=new THREE.Mesh(new THREE.BoxGeometry(4,3,3),new THREE.MeshBasicMaterial({color:0xffffff}));
+      m.position.set(papiX,2.5,L.len/2-190+i*9);
+      g.add(m); b.papi.push(m);
     }
-    // windsock
-    {
-      const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.5,14,6),
-        new THREE.MeshLambertMaterial({color:0xe8e4d8}));
-      pole.position.set(af.wid/2+34,7,af.len/2-60);
-      g.add(pole);
-      const piv=new THREE.Group();
-      piv.position.set(af.wid/2+34,13,af.len/2-60);
-      const sock=new THREE.Mesh(new THREE.CylinderGeometry(1.4,3.0,11,8,1,true),
-        new THREE.MeshLambertMaterial({color:0xff7a2f,side:THREE.DoubleSide}));
-      sock.rotation.z=Math.PI/2; sock.position.x=5.5;
-      piv.add(sock);
-      g.add(piv);
-      af.windsockPivot=piv;
-    }
-    // hangars, the watch office and a few aeroplanes on the grass
-    const baked=new THREE.MeshLambertMaterial({vertexColors:true});
-    const add=(geo,x,z,ry,cast)=>{
-      const m=new THREE.Mesh(geo,baked);
-      m.position.set(x,0,z); m.rotation.y=ry||0;
-      m.castShadow=!!cast; m.receiveShadow=true;
-      g.add(m); return m;
+    // the buildings, baked into one mesh as they are put up
+    const statics=[], _m=new THREE.Matrix4(), _e=new THREE.Euler(), _qq=new THREE.Quaternion(),
+          _p=new THREE.Vector3(), _s=new THREE.Vector3(1,1,1);
+    const place=(geo,x,z,ry,y)=>geo.clone().applyMatrix4(_m.compose(_p.set(x,y||0,z),
+      _qq.setFromEuler(_e.set(0,ry||0,0)),_s));
+    const put={
+      add(geo,x,z,ry){ statics.push(place(geo,x,z,ry)); },
+      glow(geo,x,z,ry){
+        const m=new THREE.Mesh(place(geo,x,z,ry),glassMat);
+        g.add(m);
+      },
+      apron(x,z,w,l,surface){
+        const t=apronTexture(surface).clone();
+        t.repeat.set(w/16,l/16); t.needsUpdate=true;
+        const m=new THREE.Mesh(new THREE.PlaneGeometry(w,l),new THREE.MeshLambertMaterial({map:t}));
+        m.rotation.x=-Math.PI/2; m.position.set(x,0.12,z); m.receiveShadow=true;
+        g.add(m);
+        // a taxiway from the apron's near corner on to the strip
+        const tw=new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(x)-w/2-L.wid/2+2,14),m.material);
+        tw.rotation.x=-Math.PI/2;
+        tw.position.set(Math.sign(x)*(L.wid/2+(Math.abs(x)-w/2-L.wid/2)/2),0.14,z+l/2-20);
+        tw.receiveShadow=true; g.add(tw);
+      },
+      windsock(x,z){
+        const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.5,14,6),
+          new THREE.MeshLambertMaterial({color:0xe8e4d8}));
+        pole.position.set(x,7,z); pole.castShadow=true;
+        g.add(pole);
+        const piv=new THREE.Group();
+        piv.position.set(x,13,z);
+        const sock=new THREE.Mesh(new THREE.CylinderGeometry(1.4,3.0,11,8,1,true),
+          new THREE.MeshLambertMaterial({color:0xff7a2f,side:THREE.DoubleSide}));
+        sock.rotation.z=Math.PI/2; sock.position.x=5.5;
+        piv.add(sock); g.add(piv);
+        b.windsockPivot=piv;
+      },
     };
-    const hg=makeHangar();
-    for(let i=0;i<3;i++) add(hg,-af.wid/2-96,-af.len/2+180+i*84,Math.PI/2,false);
-    add(makeTower(),-af.wid/2-60,-af.len/2+90,Math.PI/2,false);
-    [["#f2c14e","#c33a28"],["#fbf4e2","#2b4f86"],["#b8cfa0","#5a3a24"]].forEach(([b,t],i)=>{
-      add(makeParkedPlane(b,t),-af.wid/2-40,-af.len/2+300+i*26,Math.PI/2+(i-1)*0.25,true);
-    });
+    L.dress(put,L);
+    if(statics.length){
+      const m=new THREE.Mesh(mergeGeometries(statics,false),bakedMat);
+      m.castShadow=true; m.receiveShadow=true;
+      g.add(m);
+      for(const s of statics) s.dispose();
+    }
     g.visible=false;
     scene.add(g);
-    af.group=g;
+    return this.built[id]=b;
+  },
+  /** Build these layouts now, so a field never costs a hitch mid-flight. */
+  prepare(ids){ for(const id of ids) if(!this.built[id]) this.assemble(id); },
+  /** Make a layout the live field's design. The field itself is placed separately. */
+  use(id){
+    const b=this.built[id]||this.assemble(id);
+    if(af.group&&af.group!==b.group) af.group.visible=false;
+    const L=b.layout;
+    af.layout=id; af.name=L.name; af.rwy=L.rwy;
+    af.len=L.len; af.wid=L.wid; af.margin=L.margin;
+    af.group=b.group; af.strobes=b.strobes; af.papi=b.papi; af.edge=b.edge;
+    af.windsockPivot=b.windsockPivot;
+  },
+  /** Dusk: glazing lights up, and the runway lights read from further out. */
+  setNight(k){
+    this.night=k;
+    glassMat.color.copy(GLASS_DAY).lerp(GLASS_NIGHT,k);
+    for(const id in this.built){
+      const b=this.built[id];
+      if(b.edge) b.edge.material.size=2.6+k*2.4;
+      if(b.approach) b.approach.material.size=3.2+k*3.0;
+    }
   },
   place(x,z){
     af.x=x; af.z=z;
@@ -1104,7 +1188,8 @@ const Airfield={
   // Put the field down while it is still over the horizon: beyond the terrain
   // ring and beyond fog, so it is cut into the ground as those tiles load and
   // simply fades up out of the haze instead of snapping into existence.
-  reveal(){
+  reveal(id){
+    this.use(id);
     af.active=true; af.phase=6; af.rollT=0; af.seen=false;
     this.place(clamp(coursePathX(P.z-(G.levelEnd-P.dist))*0.6,-260,260),
                P.z-(G.levelEnd-P.dist));
@@ -1116,7 +1201,7 @@ const Airfield={
     Haz.clearNear(af.z,af.len*0.5+400);     // nothing should have spawned here anyway
     for(const r of Rings.list)
       if(r.active&&Math.abs(r.z-af.z)<af.len*0.5+320){ r.active=false; r.g.visible=false; }
-    popup("FIELD IN SIGHT — RUNWAY 18");
+    popup("FIELD IN SIGHT — RUNWAY "+af.rwy);
     radioCall();
   },
   // is this stretch of ground reserved for the arrival field?
@@ -1125,9 +1210,10 @@ const Airfield={
     return z<af.z+af.len*0.5+500;
   },
   // put the aeroplane at the holding point of a departure strip
-  departure(){
+  departure(id){
+    this.use(id);
     af.active=true; af.phase=4; af.rollT=0;
-    TO.lifted=false; TO.rotT=0; TO.vrT=0;
+    TO.lifted=false; TO.rotT=0; TO.vrT=0; TO.vr=Aircraft.spec.vr;
     this.place(clamp(coursePathX(P.z-af.len*0.5)*0.6,-260,260), P.z-af.len*0.5+40);
     P.x=af.x; P.z=af.z+af.len*0.5-80; P.y=af.y+2.4;
     P.vx=0; P.vy=0; P.roll=0; P.speed=0; P.pz=P.z;
@@ -1164,21 +1250,28 @@ const Airfield={
     if(af.windsockPivot) af.windsockPivot.rotation.y=Math.PI/2+Math.sin(t*0.0013)*0.35+Game.wind*0.02;
   }
 };
-Airfield.build();
 
 // ---------- sector setup ----------
-function applyTheme(lvl){
-  Game.curTheme=(lvl-1)%THEMES.length;
-  setTerrainTheme(Game.curTheme);
-  Game.curTod=(lvl-1)%TODS.length;
+/**
+ * Dress the world for a sector: its country, its hour and its weather, and
+ * both fields it touches built ahead of time.
+ */
+function applySector(sec){
+  const def=sec.def;
+  Game.curTheme=def.land;
+  setTerrainTheme(def.land);
+  paintRidges(TH.ridges);
+  Game.curTod=Math.max(0,TODS.findIndex(t=>t.name===def.tod));
   const td=TODS[Game.curTod];
   SUNDIR.set(td.dir[0],td.dir[1],td.dir[2]).normalize();
   Sky.apply(td);
   renderer.toneMappingExposure=td.exp;
   Sun.ray=td.ray;
   Shadows.sun();
-  applyWeather(lvl);
+  applyWeather(Math.max(0,WEATHERS.indexOf(def.weather)));
   Sky.setCover(Game.weather===2?0.95:(Game.weather===3?0.6:0.4));
+  Airfield.setNight(td.night||0);
+  Airfield.prepare([sec.depart,sec.dest]);
 }
 
-export { applyTheme, Airfield, Fuel, Haz, Rings, Scatter, Shadows, TH, THEMES, Terrain, af, burst, bursts, clearanceH, coursePathX, groundH, isWood, onField, ridges, updateBursts };
+export { applySector, Airfield, Fuel, Haz, Rings, Scatter, Shadows, TH, THEMES, Terrain, af, burst, bursts, clearanceH, coursePathX, groundH, isWood, onField, ridges, updateBursts };

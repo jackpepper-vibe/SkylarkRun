@@ -1,29 +1,33 @@
 // Skylark — the aeroplane.
 //
 // One half of a Craft: the flight model, the take-off roll and landing that
-// bracket every sector, the camera rig for an open cockpit, and how a sector
-// is set up and advanced. The engine drives all of it through the Plane object
-// at the foot of this file, so main.js never needs to know which aircraft is
-// flying.
+// bracket every sector, the camera rig for the cockpit, and how a sector is set
+// up and advanced. The engine drives all of it through the Plane object at the
+// foot of this file, so main.js never needs to know which aircraft is flying.
+//
+// How she flies comes from the aircraft chosen in the hangar (aircraft.js);
+// what she flies over, and what the sector asks, comes from the tour
+// (sectors.js).
 import * as THREE from 'three';
 import { clamp } from '../util.js';
-import { S, Game, TO, P, G, dents, popups, popup } from '../state.js';
+import { S, Game, TO, P, G, award, dents, popups, popup } from '../state.js';
 import { readInput } from '../input.js';
 import { chime, crashSound, fuelBeep, obstacleBeep } from '../audio.js';
-import { camera, scene } from '../view.js';
-import { Sky } from './sky.js';
-import { SUNDIR } from '../sun.js';
-import { TODS } from './sky.js';
+import { camera } from '../view.js';
+import { Sky, TODS } from './sky.js';
 import { Clouds } from '../clouds.js';
 import { WEATHERS, gDrops, updateRain } from '../weather.js';
 import { crash, levelClear, splats, startDying } from '../damage.js';
-import { LAT_CLAMP, SPEED0, SPEED_MAX, SPEED_RAMP, MAX_VX, MAX_VY, MAX_Y,
-         MIN_CLEAR } from './config.js';
-import { applyTheme, Airfield, Fuel, Haz, Rings, Scatter, Shadows, Terrain, TH, THEMES, af, ridges,
+import { LAT_CLAMP, MAX_Y, MIN_CLEAR } from './config.js';
+import { applySector, Airfield, Fuel, Haz, Rings, Scatter, Shadows, Terrain, TH, af, ridges,
          burst, bursts, clearanceH, coursePathX, groundH, isWood, onField,
          updateBursts } from './world.js';
+import { Aircraft } from './aircraft.js';
+import { Tour } from './sectors.js';
 import { drawHUD } from './hud.js';
-import { Cockpit } from './cockpit.js';
+import { Cockpit } from './cockpit/index.js';
+
+const HEDGE_HOP=45;          // metres above the ground that count as hedge-hopping
 
 // ---------- landing ----------
 function touchdown(){
@@ -31,16 +35,18 @@ function touchdown(){
   const dx=Math.abs(P.x-af.x);
   const bank=Math.abs(P.roll);
   const deep=P.z<af.z+af.len*0.5-90;              // past the piano keys, not a threshold dive
-  let bonus=0;
-  if(sink<7&&dx<10&&bank<0.13&&deep){ bonus=1500; G.landLabel="GREASED IT +1500"; }
-  else if(sink<13&&dx<20&&deep){      bonus=900;  G.landLabel="GOOD LANDING +900"; }
-  else if(sink<19){                   bonus=400;  G.landLabel="FIRM LANDING +400"; }
+  // a narrow strip asks for a tighter line: the tolerances scale with its width
+  const wk=clamp(af.wid/64,0.45,1);
+  let bonus=0, label="";
+  if(sink<7&&dx<10*wk&&bank<0.13&&deep){ bonus=1500; label="GREASED IT"; G.landGrade=3; }
+  else if(sink<13&&dx<20*wk&&deep){      bonus=900;  label="GOOD LANDING"; G.landGrade=2; }
+  else if(sink<19){                      bonus=400;  label="FIRM LANDING"; G.landGrade=1; }
   else{                                            // arrived rather than landed
     crash("HEAVY LANDING — GO AROUND");
-    P.y=af.y+30; P.vy=18; P.speed=Math.max(P.speed,58);
+    P.y=af.y+30; P.vy=18; P.speed=Math.max(P.speed,Aircraft.spec.approach*1.1);
     return;
   }
-  G.score+=bonus;
+  G.landLabel=label+" +"+award(bonus).toLocaleString();
   popup(G.landLabel);
   chime(1180); setTimeout(()=>chime(1480),120);
   burst(new THREE.Vector3(P.x-6,af.y+1,P.z-4),0xdcd2c0,1.1);
@@ -61,16 +67,16 @@ function updateRollout(dt){
   P.y=af.y+2.4;
   P.roll*=Math.exp(-5*dt);
   af.rollT+=dt;
-  Game.shake=Math.max(0,Game.shake-dt*2.2)+ (P.speed>10?0.010:0);   // rumble of the grass strip
+  Game.shake=Math.max(0,Game.shake-dt*2.2)+ (P.speed>10?0.010:0);   // rumble of the strip
   Game.flash=Math.max(0,Game.flash-dt*2.5);
   Terrain.update(); Scatter.update(); Clouds.update(); updateBursts();
   if(Math.abs(P.x-af.x)>af.wid*0.5+2){
-    G.landLabel="GROUND LOOP — BONUS LOST";
+    G.landLabel="GROUND LOOP — BONUS LOST"; G.landGrade=0;
     popup("GROUND LOOP"); crashSound(); Game.shake=1;
     levelClear(); return;
   }
   if(P.z<af.z-af.len*0.5){
-    G.landLabel="RAN OFF THE END — BONUS LOST";
+    G.landLabel="RAN OFF THE END — BONUS LOST"; G.landGrade=0;
     popup("OVERRUN"); crashSound(); Game.shake=1;
     levelClear(); return;
   }
@@ -83,7 +89,7 @@ function updateRollout(dt){
 
 // ---------- take-off: full power, hold the centreline, rotate at Vr ----------
 function updateTakeoff(dt){
-  const inp=readInput();
+  const inp=readInput(), spec=Aircraft.spec;
   af.rollT+=dt;
   P.pz=P.z;
   if(!TO.lifted){
@@ -94,7 +100,7 @@ function updateTakeoff(dt){
     Game.shake=Math.min(0.5,0.04+P.speed*0.0026);          // the strip drumming through the gear
   }else{
     TO.rotT+=dt;
-    P.vy=Math.min(24,7+TO.rotT*15);                   // she unsticks, then climbs away
+    P.vy=Math.min(spec.maxVy*0.42,7+TO.rotT*15);           // she unsticks, then climbs away
     P.y+=P.vy*dt;
     P.vx+=((inp.steer*34)-P.vx)*Math.min(1,dt*3.5);
     P.roll+=((inp.steer*0.26)-P.roll)*Math.min(1,dt*3.0);
@@ -102,8 +108,8 @@ function updateTakeoff(dt){
   }
   P.x+=P.vx*dt;
   // full throttle; on the ground she will not run away much past Vr
-  const vMax=TO.lifted?SPEED_MAX:TO.vr*1.18;
-  P.speed=Math.min(vMax,P.speed+Math.max(2.4,11.5*(1-P.speed/(SPEED_MAX*1.05)))*dt);
+  const vMax=TO.lifted?spec.speedMax:TO.vr*1.18;
+  P.speed=Math.min(vMax,P.speed+Math.max(2.4,11.5*(1-P.speed/(spec.speedMax*1.05)))*dt);
   P.z-=P.speed*dt;                                    // the ground roll is not sector distance
   Game.flash=Math.max(0,Game.flash-dt*2.5);
   Terrain.update(); Scatter.update(); Clouds.update(); updateBursts();
@@ -128,17 +134,18 @@ function updateTakeoff(dt){
   }else if(P.y>af.y+45){                              // clear of the strip: the sector begins
     Game.state=S.PLAY;
     af.phase=5;
-    P.vy=Math.min(P.vy,MAX_VY*0.55);
-    popup("AIRBORNE — SECTOR "+G.lvl+" RUNNING");
+    P.vy=Math.min(P.vy,spec.maxVy*0.55);
+    popup("AIRBORNE — "+Tour.cur.name.toUpperCase());
+    popup("OBJECTIVE: "+Tour.cur.objective.text.toUpperCase());
   }
 }
 
 // ---------- main update ----------
 function update(dt,t){
-  const inp=readInput();
-  P.vx+=((inp.steer*MAX_VX)-P.vx)*Math.min(1,dt*5.0);
-  P.vy+=((inp.pitch*MAX_VY)-P.vy)*Math.min(1,dt*5.0);
-  P.roll+=((inp.steer*0.42)-P.roll)*Math.min(1,dt*4.0);
+  const inp=readInput(), spec=Aircraft.spec;
+  P.vx+=((inp.steer*spec.maxVx)-P.vx)*Math.min(1,dt*5.0);
+  P.vy+=((inp.pitch*spec.maxVy)-P.vy)*Math.min(1,dt*5.0);
+  P.roll+=((inp.steer*spec.bank)-P.roll)*Math.min(1,dt*4.0);
   P.pz=P.z;
 
   // weather: gusts push you sideways, thermals lift you
@@ -160,22 +167,23 @@ function update(dt,t){
   const cx=coursePathX(P.z);
   P.x=clamp(P.x+(P.vx+Game.wind)*dt, cx-LAT_CLAMP, cx+LAT_CLAMP);
   P.y=clamp(P.y+(P.vy+Game.thermal)*dt, -50, MAX_Y+60);
-  if(!af.active||af.phase!==1) P.speed=Math.min(SPEED_MAX,P.speed+SPEED_RAMP*dt);
+  if(!af.active||af.phase!==1) P.speed=Math.min(spec.speedMax,P.speed+spec.ramp*dt);
   P.z-=P.speed*dt; P.dist+=P.speed*dt;
   if(P.invuln>0)P.invuln-=dt;
   Game.shake=Math.max(0,Game.shake-dt*2.2); Game.flash=Math.max(0,Game.flash-dt*2.5);
 
   // fuel is the clock you fly against
-  G.fuel-=(1.35+0.14*(G.lvl-1))*dt;
+  G.fuel-=1.35*spec.fuelBurn*Tour.cur.fuelBurn*dt;
   if(G.fuel<=0){G.fuel=0;startDying("Dead <span>stick</span>","tanks dry — engine out");return;}
   if(G.fuel<20&&performance.now()-Game.lastFuelBeep>1200){
     if(fuelBeep()) Game.lastFuelBeep=performance.now();
   }
 
   // scoring: distance trickle plus a bonus for hedge-hopping
-  G.score+=dt*P.speed*0.14;
+  G.score+=dt*P.speed*0.14*G.mult;
   const agl=P.y-groundH(P.x,P.z);
-  if(agl<45&&!af.active) G.score+=dt*22;
+  if(agl<HEDGE_HOP&&!af.active){ G.score+=dt*22*G.mult; G.lowT+=dt; }
+  Tour.tick();
 
   Rings.update(dt);
   Fuel.update(dt);
@@ -195,16 +203,16 @@ function update(dt,t){
   if(af.active&&af.phase===5&&P.z<af.z-af.len*0.5-560) Airfield.deactivate();
 
   // the sector finale
-  if(!af.active&&P.dist>G.levelEnd-4300) Airfield.reveal();
+  if(!af.active&&P.dist>G.levelEnd-4300) Airfield.reveal(Tour.cur.dest);
   if(af.active&&af.phase===6){
     const toThresh=P.z-(af.z+af.len*0.5);
-    if(!af.seen&&toThresh<2400){ af.seen=true; popup("AIRFIELD AHEAD"); }
+    if(!af.seen&&toThresh<2400){ af.seen=true; popup(af.name.toUpperCase()+" AHEAD"); }
     if(toThresh<1100) Airfield.beginApproach();
   }
   if(af.active&&af.phase===1){
-    P.speed+=(54-P.speed)*Math.min(1,dt*0.7);          // throttle back for the approach
+    P.speed+=(spec.approach-P.speed)*Math.min(1,dt*0.7);   // throttle back for the approach
     if(P.z<af.z-af.len*0.5-60){                        // flew the length of it and never landed
-      G.landLabel="MISSED APPROACH — NO BONUS";
+      G.landLabel="MISSED APPROACH — NO BONUS"; G.landGrade=0;
       popup("GO AROUND — NO BONUS");
       af.phase=3;
       levelClear(); return;
@@ -240,18 +248,37 @@ function update(dt,t){
   }
 }
 
+// ---------- sectors ----------
+/** Set the world, the fields and the run's worth for sector n; returns it. */
+function beginSector(n){
+  const sec=Tour.begin(n);
+  G.lvl=n;
+  G.mult=Aircraft.spec.scoreMul*sec.mult;
+  applySector(sec);
+  Cockpit.setSky(TODS[Game.curTod]);
+  return sec;
+}
+function announce(sec){
+  const td=TODS[Game.curTod];
+  popup("SECTOR "+sec.n+": "+sec.name.toUpperCase()+" · "+td.name+
+        (Game.weather?" · "+WEATHERS[Game.weather]:""));
+  const fresh=Tour.newHazards(sec.n);
+  if(fresh.length) popup("NEW: "+fresh.join(", ").toUpperCase());
+}
+
 // ---------- world reset ----------
 function resetWorld(){
+  const spec=Aircraft.spec;
   P.x=0;P.y=140;P.z=0;P.pz=0;P.vx=0;P.vy=0;P.roll=0;
-  P.speed=SPEED0;P.lives=3;P.invuln=0;P.dist=0;
+  P.speed=spec.speed0;P.lives=spec.lives;P.invuln=0;P.dist=0;
   Game.shake=0;Game.flash=0;Game.whiteout=0;
   dents.length=0;splats.length=0;popups.length=0;gDrops.length=0;
-  G.score=0;G.combo=0;G.bestCombo=0;G.fuel=100;G.lvl=1;G.levelEnd=5400;
+  G.score=0;G.combo=0;G.bestCombo=0;G.fuel=100;
   G.rings=0;G.ringsHit=0;G.gold=0;G.goldHit=0;G.landLabel="";
-  af.active=false;af.phase=0;af.group.visible=false;
-  applyTheme(1);
-  Cockpit.setSky(TODS[Game.curTod]);
-  Airfield.departure();          // sets P to the holding point; do this before the world
+  af.active=false;af.phase=0;if(af.group) af.group.visible=false;
+  const sec=beginSector(1);
+  G.levelLen=sec.length; G.levelEnd=sec.length;
+  Airfield.departure(sec.depart);    // sets P to the holding point; do this before the world
   Terrain.reset();
   Scatter.reset();
   Clouds.reset();
@@ -260,7 +287,7 @@ function resetWorld(){
   Haz.reset();
   clearOfDeparture();
   for(const b of bursts){b.active=false;b.sp.visible=false;}
-  popup("SECTOR 1: "+THEMES[Game.curTheme].name+" · "+TODS[Game.curTod].name);
+  announce(sec);
   popup("LINE UP — FULL POWER");
 }
 // nothing spawns over the departure strip or its climb-out
@@ -271,15 +298,14 @@ function clearOfDeparture(){
   Haz.nextZ=Math.min(Haz.nextZ,clear-620);
 }
 function nextSector(){
-  G.lvl++;
+  const spec=Aircraft.spec;
   G.fuel=100;
-  P.lives=Math.min(3,P.lives+1);
-  G.landLabel="";
-  applyTheme(G.lvl);
-  Cockpit.setSky(TODS[Game.curTod]);
-  // taxi back out: a fresh strip a little way on, and the sector starts on the roll
+  P.lives=Math.min(spec.lives,P.lives+1);
+  G.landLabel=""; G.combo=0;
+  const sec=beginSector(G.lvl+1);
+  // taxi back out: the field you landed at, a little way on, and the sector starts on the roll
   P.z-=600;
-  Airfield.departure();
+  Airfield.departure(sec.depart);
   Terrain.reset();
   Scatter.reset();
   Clouds.reset();
@@ -287,11 +313,10 @@ function nextSector(){
   Fuel.reset();
   Haz.reset();
   clearOfDeparture();
-  G.levelEnd=P.dist+5000+700*G.lvl;
-  P.invuln=0;
-  if(G.lvl===2)popup("NEW: PYLONS, MASTS & TURBINES");
-  popup("SECTOR "+G.lvl+": "+THEMES[Game.curTheme].name+" · "+TODS[Game.curTod].name+
-        (Game.weather?" · "+WEATHERS[Game.weather]:""));
+  G.levelLen=sec.length;
+  G.levelEnd=P.dist+sec.length;
+  P.speed=0; P.invuln=0;
+  announce(sec);
 }
 
 // ---------- attract mode: the countryside flies itself behind the menu ----------
@@ -315,12 +340,12 @@ function updateAttract(dt){
 
 
 // ---------- the craft ----------
-// What the engine is allowed to ask of an aircraft. There is one today, but the
-// engine talks to it through this shape rather than by name, so main.js has no
-// idea what it is flying.
+// What the engine is allowed to ask of an aircraft. The engine talks to it
+// through this shape rather than by name, so main.js has no idea what it is
+// flying — or which of the hangar's aeroplanes it is.
 export const Plane = {
   id: "plane",
-  name: "Skylark",
+  get name(){ return Aircraft.spec.name; },
 
   /** The state a sector begins in: on the strip, ready to roll. */
   startState: S.TAKEOFF,
@@ -381,18 +406,20 @@ export const Plane = {
     burst(new THREE.Vector3(P.x+10,g+9,P.z-24),0xffd08a,1.4);
     burst(new THREE.Vector3(P.x-11,g+5,P.z-12),0xd2452f,1.4);
   },
-  nextThemeName(){ return THEMES[G.lvl%THEMES.length].name; },
+  /** The sector just flown, and the one after it, for the sector-flown card. */
+  sectorCard(){ return { flown: Tour.cur, next: Tour.peek(G.lvl+1), stars: Tour.stars(),
+                         rings: Tour.rings(), fresh: Tour.newHazards(G.lvl+1) }; },
 
   /** The 3D cockpit, posed and lit for this frame, as a pass over the world. */
   cockpitPass(t){ return Cockpit.update(t); },
-  /** The 2D layer over everything: guidance, popups, the scarf. */
+  /** The 2D layer over everything: guidance, popups, the slipstream. */
   drawCockpit(t){ drawHUD(t); },
 
   /** Craft-specific handles and readings for the headless suite. */
   debug: {
-    af, Rings, Fuel, Haz, Terrain,
+    af, Rings, Fuel, Haz, Terrain, Airfield, Tour, Aircraft, Cockpit,
     courseX: z => coursePathX(z),
     groundAt: (x,z) => groundH(x,z),
-    extra: () => ({ afPhase: af.phase })
+    extra: () => ({ afPhase: af.phase, field: af.layout })
   }
 };

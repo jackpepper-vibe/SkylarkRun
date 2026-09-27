@@ -39,8 +39,9 @@ function updateRain(dt){
   }
   rain.geometry.attributes.position.needsUpdate=true;
 }
-function applyWeather(lvl){
-  Game.weather=lvl<3?0:[0,1,2,3,1,2,0,3][(lvl-3)%8];
+/** Set the weather for a sector, by index into WEATHERS. */
+function applyWeather(kind){
+  Game.weather=kind;
   gDrops.length=0;
   Game.wind=0; Game.windTarget=0; Game.thermal=0;
   Game.nextGust=performance.now()+3000;

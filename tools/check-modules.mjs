@@ -68,8 +68,10 @@ function boundLocally(src) {
   for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
   // `let W=0,H=0,DPR=1;` declares three names, not one, and a declaration may
   // wrap across lines — so read to the semicolon and split on top-level commas,
-  // rather than stopping at the first '=' or at the end of the line.
-  for (const m of src.matchAll(/\b(?:const|let|var)\s+([^;]+);/g)) {
+  // rather than stopping at the first '=' or at the end of the line. The read
+  // is a lookahead, so a declaration nested inside another's initialiser
+  // (`const a=f(()=>{ const b=1, c=2; })`) is scanned in its own right too.
+  for (const m of src.matchAll(/\b(?:const|let|var)\s+(?=([^;]+);)/g)) {
     let depth = 0, cur = '';
     const parts = [];
     for (const ch of m[1]) {
@@ -84,16 +86,19 @@ function boundLocally(src) {
       if (n) names.add(n[1]);
     }
   }
+  // Parameters, including destructured ones with defaults:
+  // `function f(a, {radius=1, blades=2}={})` binds a, radius and blades.
+  const param = p => p.trim().match(/^[{[\s]*\.{0,3}\s*([A-Za-z_$][\w$]*)/);
   for (const m of src.matchAll(/\bfunction\s*\*?\s*([A-Za-z_$][\w$]*)?\s*\(([^)]*)\)/g)) {
     if (m[1]) names.add(m[1]);
     for (const p of m[2].split(',')) {
-      const n = p.trim().match(/^\.{0,3}\s*([A-Za-z_$][\w$]*)/);
+      const n = param(p);
       if (n) names.add(n[1]);
     }
   }
   for (const m of src.matchAll(/\(([^()]*)\)\s*=>/g))
     for (const p of m[1].split(',')) {
-      const n = p.trim().match(/^([A-Za-z_$][\w$]*)/);
+      const n = param(p);
       if (n) names.add(n[1]);
     }
   for (const m of src.matchAll(/(^|[^.\w$])([A-Za-z_$][\w$]*)\s*=>/gm)) names.add(m[2]);

@@ -61,6 +61,7 @@ scene.add(fillLight);
 //   haze               the air's colour with nothing behind it (horizon, fog)
 //   glow               the sun's in-scatter colour through that air
 //   density / falloff  haze per metre at the ground, and its scale height
+//   night              0..1: how far the lamps are lit (airfield glazing, runway lights)
 const TODS=[
  {name:"MORNING",  zenith:"#3a74c2", horizon:"#a9cdea", haze:"#c9dcec", glow:"#ffe2b0",
   density:0.00040, falloff:420, sunC:0xfff0d6, sunI:1.55, hemiS:0xb4d0ec, hemiG:0x56603c, hemiI:0.62,
@@ -74,6 +75,10 @@ const TODS=[
  {name:"GOLDEN",   zenith:"#2c5896", horizon:"#d8b690", haze:"#e2c6a0", glow:"#ffb468",
   density:0.00052, falloff:380, sunC:0xffc88a, sunI:1.45, hemiS:0xb8b0a8, hemiG:0x4e4430, hemiI:0.55,
   exp:1.04, dir:[-0.72,0.18,-0.67], ray:0.95},
+ // the sun on the horizon dead ahead, the east already going blue, lamps coming on
+ {name:"DUSK",     zenith:"#1e3668", horizon:"#e6a27a", haze:"#d9a58c", glow:"#ff8e4e",
+  density:0.00050, falloff:360, sunC:0xff9c5c, sunI:1.25, hemiS:0x8e94b8, hemiG:0x3a3428, hemiI:0.50,
+  exp:1.14, dir:[0.24,0.09,-0.97], ray:1.10, night:1},
 ];
 
 // ---------- sky dome ----------

@@ -26,7 +26,7 @@ export const Game = {
   lastFuelBeep: 0,
   dying: { t:0, roll:0, title:"", sub:"" },
   curTod: 0,              // time of day, cycled per sector
-  curTheme: 0,
+  curTheme: "MEADOWS",    // the land's theme, by name (terrain.js)
   postOn: true,           // bloom and god rays, toggleable from the HUD
   attractOn: false,       // the countryside flying itself behind the menu
   simHold: false,         // test hook: keep rendering, stop the clock
@@ -35,7 +35,8 @@ export const Game = {
   // without the two modules importing each other.
   weather: 0, wind: 0, windTarget: 0, gustEnd: 0, nextGust: 0, thermal: 0,
   orientPaused: false,
-  prePauseState: S.PLAY
+  prePauseState: S.PLAY,
+  hangar: false           // choosing an aircraft: the engine runs for the preview
 };
 
 /** Take-off: rotation speed, then the rotation itself. */
@@ -45,9 +46,21 @@ export const TO = { vr:50, vrT:0, rotT:0, lifted:false };
 export const P = { x:0, y:120, z:0, pz:0, vx:0, vy:0, speed:SPEED0,
                    lives:3, invuln:0, dist:0, roll:0 };
 
-/** The run: score, fuel, sector and the gate tally. */
-export const G = { score:0, combo:0, bestCombo:0, fuel:100, lvl:1, levelEnd:5400,
-                   rings:0, ringsHit:0, gold:0, goldHit:0, landLabel:"" };
+/**
+ * The run: score, fuel, sector and the gate tally. `mult` is what every point
+ * is worth — the aircraft's rating times the sector's — and the sector's own
+ * tallies (wires passed under, seconds hedge-hopping) feed its objective.
+ */
+export const G = { score:0, combo:0, bestCombo:0, fuel:100, lvl:1, levelEnd:5400, levelLen:5400,
+                   rings:0, ringsHit:0, gold:0, goldHit:0, landLabel:"", landGrade:0,
+                   mult:1, under:0, lowT:0, objDone:false, secChain:0 };
+
+/** Add points at the run's current worth; returns what was actually scored. */
+export function award(pts){
+  const v = Math.round(pts * G.mult);
+  G.score += v;
+  return v;
+}
 
 export const dents = [];    // cowling damage accumulated over the run
 export const popups = [];

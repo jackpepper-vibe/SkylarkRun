@@ -5,9 +5,9 @@
 // entry. countryside.js calls in here on a collision, and this module reads
 // the terrain back — a cycle ES modules allow because neither side touches the
 // other while the modules are being evaluated.
-import { G, Game, P, S, dents, popup } from './state.js';
+import { G, Game, P, S, award, dents, popup } from './state.js';
 import { chime, crashSound, deathSpiral, thud } from './audio.js';
-import { SPEED0 } from './plane/config.js';
+import { Aircraft } from './plane/aircraft.js';
 import { Active } from './active.js';
 import { H, W } from './view.js';
 import { Net, Save, renderBoard } from './logbook.js';
@@ -24,7 +24,7 @@ function crash(reason){
   if(P.invuln>0||Game.state===S.DYING) return;
   P.lives--; P.invuln=2.4; Game.shake=1; Game.flash=1; crashSound();
   if(navigator.vibrate)navigator.vibrate(180);
-  P.speed=Math.max(SPEED0*0.75,P.speed*0.45);
+  P.speed=Math.max(Aircraft.spec.speed0*0.75,P.speed*0.45);
   G.combo=0;
   dents.push({x:W*(0.28+Math.random()*0.44),y:H*(0.55+Math.random()*0.18),
     seed:Math.floor(Math.random()*1e4),r:10+Math.random()*14});
@@ -34,7 +34,7 @@ function crash(reason){
 function birdStrike(){
   if(P.invuln>0||Game.state===S.DYING) return;
   Game.shake=Math.max(Game.shake,0.75); Game.flash=Math.max(Game.flash,0.4);
-  P.speed=Math.max(SPEED0*0.8,P.speed-16);
+  P.speed=Math.max(Aircraft.spec.speed0*0.8,P.speed-16);
   G.combo=0;
   splats.push({x:W*(0.30+Math.random()*0.40),y:H*(0.44+Math.random()*0.16),
     r:6+Math.random()*9,seed:Math.random()*1000});
@@ -87,19 +87,36 @@ function endGame(title,sub){
   show("overOverlay");
 }
 
+const STAR_ON="★", STAR_OFF="☆";
 function levelClear(){
   Game.state=S.CLEAR;
-  const rb=G.ringsHit*40;
-  const bf=Math.round(G.fuel*12), bh=P.lives*300;
-  G.score=Math.floor(G.score+rb+bf+bh);
-  document.getElementById("clearLvl").textContent=G.lvl;
-  document.getElementById("bLand").textContent=G.landLabel||"";
-  document.getElementById("bRings").textContent=G.ringsHit+"/"+G.rings+"  (+"+rb.toLocaleString()+")";
-  document.getElementById("bChain").textContent="x"+G.bestCombo;
-  document.getElementById("bFuel").textContent="+"+bf.toLocaleString();
-  document.getElementById("bHull").textContent="+"+bh.toLocaleString();
-  document.getElementById("clearScore").textContent=G.score.toLocaleString();
-  document.getElementById("nextTheme").textContent=Active.craft.nextThemeName();
+  const card=Active.craft.sectorCard(), sr=card.rings;
+  // the end-of-sector bonuses, at the run's current worth like every other point
+  const rb=award(sr.hit*40), bf=award(G.fuel*12), bh=award(P.lives*300);
+  G.score=Math.floor(G.score);
+  const stars=card.stars;
+  Save.noteStars(card.flown.key,stars);
+  const $=id=>document.getElementById(id);
+  $("clearLvl").textContent=G.lvl;
+  $("clearName").textContent=card.flown.name+" · wheels stopped";
+  $("clearStars").textContent=STAR_ON.repeat(stars)+STAR_OFF.repeat(3-stars);
+  $("bLand").textContent=G.landLabel||"";
+  $("bObj").textContent=card.flown.objective.text+(G.objDone?" ✓":" ✗");
+  $("bObj").style.color=G.objDone?"#c9ffd0":"#ffc2a8";
+  $("bRings").textContent=sr.hit+"/"+sr.seen+"  (+"+rb.toLocaleString()+")";
+  $("bChain").textContent="x"+G.secChain;
+  $("bFuel").textContent="+"+bf.toLocaleString();
+  $("bHull").textContent="+"+bh.toLocaleString();
+  $("clearScore").textContent=G.score.toLocaleString();
+  // the next leg's briefing
+  const n=card.next;
+  $("nextName").textContent="Sector "+n.n+": "+n.name;
+  $("nextMeta").textContent=[n.def.land,n.def.tod,n.def.weather].map(s=>s.toLowerCase()).join(" · ")+
+    " · score ×"+(n.mult*Aircraft.spec.scoreMul).toFixed(2);
+  $("nextBrief").textContent=n.def.brief;
+  $("nextObj").textContent=n.objective.text;
+  $("nextNew").textContent=card.fresh.length?"New: "+card.fresh.join(", "):"";
+  $("contBtn").innerHTML="&#9654;&ensp;Take off for "+n.name;
   [660,880,1100].forEach((f,i)=>setTimeout(()=>chime(f),i*140));
   show("clearOverlay");
 }

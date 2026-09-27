@@ -22,22 +22,68 @@ import { CANOPY_H } from './config.js';
 import { P } from '../state.js';
 import { Water } from './water.js';
 
-// ---------- sector themes: the shape of the land ----------
-export const THEMES=[
-  {name:"MEADOWS",  amp:82,  f:1.05, ridge:1.00, water:-52, wood:0.60, arable:0.34},
-  {name:"HIGHLANDS",amp:142, f:0.80, ridge:1.28, water:-96, wood:0.66, arable:0.46},
-  {name:"LAKELAND", amp:96,  f:1.20, ridge:1.10, water:-14, wood:0.58, arable:0.40},
-  {name:"DOWNLAND", amp:64,  f:0.92, ridge:0.94, water:-46, wood:0.68, arable:0.28},
-];
-export let TH=THEMES[0];
-export function setTerrainTheme(i){ TH=THEMES[i]; }
+// ---------- sector themes: the shape, the colour and the furniture of the land ----------
+// Each theme is a whole kind of country, not a recolour:
+//   amp f ridge   relief: height, feature size, how sharp the tops are
+//   water         the level lakes fill to
+//   wood arable   land-use thresholds: above `wood` is woodland, above
+//                 `arable` is ploughland, the rest is grass
+//   hedgeA/P      how often an arable / pasture field edge is hedged (walled)
+//   walls         field boundaries are dry-stone walls rather than hedges
+//   pine poplar   share of woodland trees that are pine; of hedgerow trees
+//                 that are poplar
+//   farms rocks   how often a field has a farmyard / a boulder in it
+//   orchard       how often a pasture field is planted as an orchard
+//   pal           the ground's colours; ridge the far hills' paint
+export const THEMES={
+  MEADOWS:{name:"MEADOWS", amp:82, f:1.05, ridge:1.00, water:-52, wood:0.60, arable:0.34,
+    hedgeA:0.82, hedgeP:0.30, walls:false, pine:0.12, poplar:0.22, farms:1.0, rocks:0.25, orchard:0,
+    pal:{crop:["#c7a24e","#d6c07e","#6c5037","#6c9638","#d9c53c","#bba36c"],
+         grass:["#4d7c33","#58883a","#44732e","#5f8c46","#527d38","#668f43"],
+         wood:"#243d1d", heath:"#7a6c48", rock:"#7b7366", sand:"#cdb988", snow:"#eef2f6",
+         mown:"#5a8a3a", hedge:"#35522a", margin:"#6f9446"},
+    ridges:[["#5d7488",false],["#4f6a58",false]]},
+  DOWNLAND:{name:"DOWNLAND", amp:64, f:0.92, ridge:0.94, water:-46, wood:0.70, arable:0.28,
+    hedgeA:0.40, hedgeP:0.10, walls:false, pine:0.04, poplar:0.08, farms:0.55, rocks:0.04, orchard:0,
+    pal:{crop:["#ceb067","#dccb8e","#a59a84","#7c9e48","#dcc93f","#cbb98a"],
+         grass:["#6c8d44","#789a4c","#66873f","#80a055","#72924a","#86a45a"],
+         wood:"#2c4424", heath:"#9a9468", rock:"#dcd8ca", sand:"#d8ceb0", snow:"#eef2f6",
+         mown:"#6f9a48", hedge:"#3c5a2c", margin:"#8aa656"},
+    ridges:[["#6a7c8c",false],["#61785c",false]]},
+  LAKELAND:{name:"LAKELAND", amp:96, f:1.20, ridge:1.10, water:-14, wood:0.58, arable:0.52,
+    hedgeA:0.70, hedgeP:0.55, walls:true, pine:0.40, poplar:0.05, farms:0.8, rocks:0.45, orchard:0,
+    pal:{crop:["#b89a52","#c8b27a","#5e4a36","#5f8a38","#c9b640","#a8966a"],
+         grass:["#3f6f30","#4a7a36","#3a682c","#517d40","#457234","#58843e"],
+         wood:"#1f3a1c", heath:"#8a6a3e", rock:"#6a6c6c", sand:"#bfb08a", snow:"#eef2f6",
+         mown:"#4f8036", hedge:"#6f6d66", margin:"#5e8a40"},
+    ridges:[["#566d84",true],["#44604e",false]]},
+  HIGHLANDS:{name:"HIGHLANDS", amp:142, f:0.80, ridge:1.28, water:-96, wood:0.66, arable:0.60,
+    hedgeA:0.55, hedgeP:0.40, walls:true, pine:0.72, poplar:0.0, farms:0.35, rocks:0.60, orchard:0,
+    pal:{crop:["#a8925a","#b8a676","#5a4636","#6a8440","#b8a844","#9c8a64"],
+         grass:["#6c7a3c","#788444","#62723a","#828a4c","#70803f","#8a8e52"],
+         wood:"#1d3320", heath:"#6e4f58", rock:"#7a766e", sand:"#b8aa88", snow:"#f2f5f8",
+         mown:"#6a8444", hedge:"#78756c", margin:"#7a8446"},
+    ridges:[["#5a6c82",true],["#4a5a4c",true]]},
+  VALE:{name:"VALE", amp:52, f:0.90, ridge:0.95, water:-40, wood:0.67, arable:0.30,
+    hedgeA:0.78, hedgeP:0.45, walls:false, pine:0.02, poplar:0.45, farms:1.2, rocks:0.05, orchard:0.26,
+    pal:{crop:["#d6a84a","#e2c67a","#7a5a3c","#78a040","#e2cf4a","#d4b673"],
+         grass:["#56863a","#62923f","#4e7e34","#6a9848","#5c8a3c","#72a04a"],
+         wood:"#27421f", heath:"#8a7a4c", rock:"#8a8272", sand:"#d2c090", snow:"#eef2f6",
+         mown:"#5e8e3c", hedge:"#3a5a2b", margin:"#7aa04c"},
+    ridges:[["#6a6a86",false],["#5a6450",false]]},
+};
+export let TH=THEMES.MEADOWS;
+export function setTerrainTheme(name){ TH=THEMES[name]||THEMES.MEADOWS; }
 
 // ---------- the airfield's footprint ----------
 // Shared state for whichever strip is live: the height field grades flat
-// under it, the scatter keeps it clear and the shader mows it.
-export const af={active:false,x:0,z:0,y:0,len:1000,wid:64,group:null,
+// under it, the scatter keeps it clear and the shader mows it. `margin` is how
+// far the mown, graded field runs beyond each runway edge — wide enough for the
+// hangars and the apron. `layout` is the airfield's design (airfields.js) and
+// `rwy` the designator painted on the strip.
+export const af={active:false,x:0,z:0,y:0,len:1000,wid:64,margin:55,group:null,
           phase:0,seen:false,rollT:0,strobes:null,papi:null,edge:null,
-          windsockPivot:null};
+          windsockPivot:null,layout:null,rwy:"18"};
 
 // ---------- terrain height field ----------
 export function baseH(x,z){
@@ -53,7 +99,7 @@ export function baseH(x,z){
 export function groundH(x,z){
   let h=baseH(x,z);
   if(af.active){                                       // the airfield is graded flat
-    const dx=Math.abs(x-af.x)-af.wid*0.5-80;
+    const dx=Math.abs(x-af.x)-af.wid*0.5-af.margin-25;
     const dz=Math.abs(z-af.z)-af.len*0.5-160;
     const d=Math.hypot(Math.max(0,dx),Math.max(0,dz));
     if(d<300){ const k=smooth(1-d/300); h=lerp(h,af.y,k); }
@@ -65,7 +111,7 @@ export function landuse(x,z){
 }
 export function isWood(x,z){ return landuse(x,z)>TH.wood; }
 export function onField(x,z){                           // inside the graded airfield
-  return af.active&&Math.abs(x-af.x)<af.wid*0.5+55&&Math.abs(z-af.z)<af.len*0.5+140;
+  return af.active&&Math.abs(x-af.x)<af.wid*0.5+af.margin&&Math.abs(z-af.z)<af.len*0.5+140;
 }
 // clearance = the altitude below which you are into the scenery
 export function clearanceH(x,z){
@@ -94,11 +140,11 @@ export function cellPlan(gx,gz,out){
   if(o.kind===KIND.ARABLE){
     const c=r();
     o.variant=c<0.26?CROP.WHEAT:c<0.44?CROP.BARLEY:c<0.62?CROP.PLOUGH:c<0.82?CROP.GREEN:c<0.90?CROP.RAPE:CROP.STUBBLE;
-    o.hedgeN=r()<0.82; o.hedgeW=r()<0.72;
+    o.hedgeN=r()<TH.hedgeA; o.hedgeW=r()<TH.hedgeA*0.88;
   }else{
     o.variant=(r()*6)|0;
     // pasture is fenced more often than hedged, but the old hedges survive
-    o.hedgeN=r()<0.30; o.hedgeW=r()<0.24;
+    o.hedgeN=r()<TH.hedgeP; o.hedgeW=r()<TH.hedgeP*0.8;
   }
   o.gate=0.15+r()*0.70;                 // along each hedged edge, as a fraction
   o.tint=r();
@@ -400,7 +446,12 @@ export const Terrain={
   sync(){
     const u=groundUniforms;
     u.waterLevel.value=TH.water; u.amp.value=TH.amp; u.woodTh.value=TH.wood;
-    if(af.active) u.afRect.value.set(af.x,af.z,af.wid*0.5+55,af.len*0.5+140);
+    // the theme's palette, converted into the linear working space in place
+    const pal=TH.pal;
+    pal.crop.forEach((h,i)=>u.cropCol.value[i].set(h));
+    pal.grass.forEach((h,i)=>u.grassCol.value[i].set(h));
+    for(const k of ["wood","heath","rock","sand","snow","mown","hedge","margin"]) u[k+"Col"].value.set(pal[k]);
+    if(af.active) u.afRect.value.set(af.x,af.z,af.wid*0.5+af.margin,af.len*0.5+140);
     else u.afRect.value.set(0,0,0,0);
   },
   update(){

@@ -9,6 +9,8 @@ import { H, W, camera, hctx } from '../view.js';
 import { clamp } from '../util.js';
 import { G, Game, P, S, TO, popups } from '../state.js';
 import { Airfield, Rings, af, groundH } from './world.js';
+import { Aircraft } from './aircraft.js';
+import { Tour } from './sectors.js';
 import { CAN_TILT, haveTilt, permState } from '../input.js';
 
 // ---------- HUD ----------
@@ -23,9 +25,9 @@ function drawHUD(t){
     hctx.fillRect(0,0,W,H);
   }
   if(Game.flash>0){hctx.fillStyle="rgba(210,70,40,"+(Game.flash*0.36).toFixed(3)+")";hctx.fillRect(0,0,W,H);}
-  // slipstream streaks tearing past the open sides
-  {
-    const sp=clamp((P.speed-50)/90,0,1);
+  // slipstream streaks tearing past the open sides — not through a cabin's glass
+  if(Aircraft.spec.open){
+    const sp=clamp((P.speed-40)/90,0,1);
     hctx.save();
     hctx.globalAlpha=0.10+sp*0.22;
     hctx.strokeStyle="#ffffff";hctx.lineWidth=1.4;
@@ -54,6 +56,23 @@ function drawHUD(t){
     hctx.strokeText(popups[i].txt,W/2,py);
     hctx.fillText(popups[i].txt,W/2,py);
     hctx.globalAlpha=1;
+  }
+  // ---- the sector's objective, top left ----
+  if(Game.state===S.PLAY&&Game.readyT<=0){
+    const o=Tour.progress();
+    const fs=Math.max(10,H*0.024);
+    hctx.font="700 "+fs+"px ui-monospace,Menlo,Consolas,monospace";
+    hctx.textAlign="left"; hctx.textBaseline="middle";
+    const txt=(o.done?"✓ ":"◆ ")+o.text.toUpperCase()+(o.done?"":"  "+o.have+"/"+o.need);
+    const tw=hctx.measureText(txt).width, x0=W*0.02, y0=H*0.05;
+    hctx.fillStyle="rgba(20,16,10,0.42)";
+    hctx.fillRect(x0-fs*0.5,y0-fs*0.9,tw+fs,fs*1.8);
+    hctx.fillStyle=o.done?"#8fe8a0":"#fff0c4";
+    hctx.fillText(txt,x0,y0);
+    if(!o.done){                                           // progress under it
+      hctx.fillStyle="rgba(255,240,196,0.25)"; hctx.fillRect(x0,y0+fs*0.62,tw,2);
+      hctx.fillStyle="#ffd98a"; hctx.fillRect(x0,y0+fs*0.62,tw*o.have/o.need,2);
+    }
   }
   // ---- hedge-hopping bonus ----
   if(Game.state===S.PLAY&&!af.active&&P.y-groundH(P.x,P.z)<45){
@@ -100,7 +119,8 @@ function drawHUD(t){
     hctx.globalAlpha=0.9;
     hctx.fillStyle="#fff0c4";
     hctx.font="800 "+Math.max(11,H*0.026)+"px ui-monospace,Menlo,Consolas,monospace";
-    hctx.fillText(Game.readyT>0?"HOLDING — RUNWAY 18":(TO.lifted?"POSITIVE CLIMB":"TAKE-OFF ROLL"),W/2,H*0.075);
+    hctx.fillText(Game.readyT>0?"HOLDING — "+af.name.toUpperCase()+", RUNWAY "+af.rwy
+                                :(TO.lifted?"POSITIVE CLIMB":"TAKE-OFF ROLL"),W/2,H*0.075);
     hctx.globalAlpha=1;
     if(!TO.lifted){
       // centreline bar, same instrument the landing uses
@@ -136,7 +156,7 @@ function drawHUD(t){
     hctx.globalAlpha=0.85;
     hctx.fillStyle="#fff0c4";
     hctx.font="800 "+Math.max(11,H*0.026)+"px ui-monospace,Menlo,Consolas,monospace";
-    hctx.fillText(Game.state===S.ROLLOUT?"ROLLOUT — HOLD THE CENTRELINE":"FINAL APPROACH — RUNWAY 18",W/2,H*0.075);
+    hctx.fillText(Game.state===S.ROLLOUT?"ROLLOUT — HOLD THE CENTRELINE":"FINAL APPROACH — RUNWAY "+af.rwy,W/2,H*0.075);
     hctx.globalAlpha=1;
     if(Game.state===S.PLAY){
       const err=Airfield.glideError();
@@ -201,7 +221,7 @@ function drawHUD(t){
     hctx.fillStyle="#ffd98a";
     hctx.font="600 "+Math.max(9,H*0.020)+"px ui-monospace,Menlo,Consolas,monospace";
     hctx.textAlign="left";hctx.textBaseline="middle";
-    hctx.fillText(permState==="denied"?"TILT DENIED — DRAG OR KEYS":"NO TILT — DRAG OR KEYS",W*0.02,H*0.035);
+    hctx.fillText(permState==="denied"?"TILT DENIED — DRAG OR KEYS":"NO TILT — DRAG OR KEYS",W*0.02,H*0.965);
   }
 }
 

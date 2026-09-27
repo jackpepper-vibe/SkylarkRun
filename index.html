@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#7fb6e0">
 <meta name="apple-mobile-web-app-title" content="Skylark Run">
-<meta name="description" content="Open-cockpit air racing over sunlit countryside: thread the rings, then grease the landing.">
+<meta name="description" content="Air racing over sunlit countryside in five aeroplanes, across a five-sector tour: thread the rings, meet the objective, grease the landing.">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
@@ -80,6 +80,64 @@
   .tiny{font-size:11px;color:#fbf4e2;opacity:.75;margin-top:22px;letter-spacing:.05em;}
   #boardList{margin-top:14px;list-style-position:inside;
     font:600 15px ui-monospace,Menlo,monospace;color:#fbf4e2;text-align:left;min-height:20px;}
+
+  /* ---------- the hangar: the live cockpit behind, the choice along the bottom ---------- */
+  #hangarOverlay{background:linear-gradient(180deg,rgba(20,16,10,0.55) 0%,rgba(20,16,10,0) 16%,
+      rgba(20,16,10,0) 46%,rgba(20,16,10,0.82) 78%);
+    backdrop-filter:none;-webkit-backdrop-filter:none;justify-content:space-between;
+    padding:calc(10px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+            calc(10px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));}
+  .hTitle{font:800 clamp(13px,2.6vh,17px)/1 ui-monospace,Menlo,monospace;letter-spacing:.28em;
+    text-transform:uppercase;color:#fbf4e2;text-shadow:0 2px 6px rgba(0,0,0,.5);}
+  .hPanel{width:min(100%,980px);display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);
+    gap:6px 22px;align-items:end;text-align:left;color:#fbf4e2;}
+  .acKind{font:700 clamp(10px,2vh,13px) ui-monospace,Menlo,monospace;letter-spacing:.22em;
+    text-transform:uppercase;color:#ffd98a;}
+  .acName{font-size:clamp(22px,6vh,40px);font-weight:800;letter-spacing:.06em;line-height:1.05;
+    text-shadow:0 3px 0 #8a5a22,0 6px 14px rgba(0,0,0,.4);}
+  .acBlurb{font-size:clamp(11px,2.2vh,14px);line-height:1.45;opacity:.92;margin-top:4px;max-width:52ch;}
+  .acStats{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;align-items:center;
+    font:700 clamp(10px,1.9vh,12px) ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;}
+  .pips{display:flex;gap:4px;}
+  .pips i{display:block;width:clamp(14px,3.4vw,26px);height:7px;border-radius:2px;background:rgba(251,244,226,.2);}
+  .pips i.on{background:#ffd98a;}
+  .acMul{grid-column:1/-1;color:#c9ffd0;margin-top:2px;}
+  .acList{grid-column:1/-1;display:flex;gap:8px;margin-top:8px;overflow-x:auto;scrollbar-width:none;}
+  .acList button{flex:1 0 108px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;
+    background:rgba(251,244,226,.10);border:2px solid rgba(251,244,226,.25);border-radius:10px;
+    color:#fbf4e2;padding:6px 6px 5px;font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.06em;}
+  .acList button svg{width:64px;height:30px;}
+  .acList button.sel{background:rgba(255,217,138,.22);border-color:#ffd98a;color:#ffd98a;}
+  .hBtns{grid-column:1/-1;display:flex;gap:12px;justify-content:center;align-items:center;margin-top:8px;}
+  .hBtns .btn{padding:12px 30px;}
+  .hBtns .btn.ghost{margin-top:0;}
+  @media (max-height:430px){ .acBlurb{display:none;} .acList button svg{height:22px;} }
+  @media (max-width:640px){ .hPanel{grid-template-columns:1fr;} }
+
+  /* ---------- the sector-flown card ---------- */
+  .cols{display:flex;gap:22px;align-items:flex-start;justify-content:center;max-width:980px;width:100%;}
+  .col{flex:0 1 330px;min-width:0;}
+  .cols .brief{flex:1 1 360px;}
+  .stars{font-size:clamp(24px,6vh,40px);letter-spacing:.2em;color:#ffd98a;text-shadow:0 2px 0 #8a5a22;margin-bottom:4px;}
+  .brief{max-width:400px;text-align:left;background:rgba(251,244,226,0.86);border:1px solid #8a5a2288;
+    border-radius:12px;padding:12px 16px;color:#3a2c1c;box-shadow:0 6px 18px rgba(20,30,45,0.22);
+    font:500 clamp(11px,2.1vh,14px)/1.5 ui-monospace,Menlo,Consolas,monospace;}
+  .brief .bName{font-size:1.15em;font-weight:800;color:#a8541f;}
+  .brief .bMeta{text-transform:uppercase;letter-spacing:.08em;font-size:.86em;opacity:.8;margin-bottom:6px;}
+  .brief .bObj{margin-top:6px;font-weight:700;}
+  .brief .bNew{color:#b0321f;font-weight:700;}
+  #clearOverlay .stat{margin:2px 0;}
+  /* a landscape phone: everything on one screen, two columns side by side */
+  @media (max-height:430px){
+    #clearOverlay{padding:10px 16px;}
+    #clearOverlay h1{font-size:22px !important;}
+    #clearOverlay .sub{margin:2px 0 6px !important;font-size:10px;}
+    #clearOverlay .stat{font-size:12px;}
+    .stars{font-size:22px;margin-bottom:0;}
+    .brief{padding:8px 12px;font-size:10.5px;line-height:1.4;}
+    #contBtn{margin-top:8px !important;padding:10px 26px;font-size:14px;}
+  }
+  @media (max-width:560px){ .cols{flex-direction:column;align-items:center;} }
 </style>
 </head>
 <body>
@@ -105,17 +163,34 @@
   <div class="stat" id="bestLine" style="display:none;margin-bottom:12px;"></div>
   <div class="placard">
     <span id="ctrlLine"><b>TILT</b> to bank &middot; dive &middot; climb</span><br>
-    Hold the centreline, <b>ease back at Vr</b> &mdash; the clock starts in the air<br>
-    Thread the <b>rings</b> for points &middot; chain them for multipliers<br>
-    Fuel balloons top the tank &middot; pylons, masts &amp; turbines bite<br>
+    Choose from <b>five aeroplanes</b> &mdash; each flies, and sits, differently<br>
+    A tour of <b>five sectors</b>: new country, new hazards, a new field each time<br>
+    Thread the <b>rings</b>, chain them, and meet each sector's <b>objective</b><br>
     Every sector ends on a <b>runway</b> &mdash; grease it, then roll her out
   </div>
-  <button id="startBtn" class="btn">&#9654;&ensp;Enable tilt &amp; fly</button>
+  <button id="startBtn" class="btn">&#9654;&ensp;Choose your aircraft</button>
   <label id="invertRow" class="tiny" style="display:none;align-items:center;justify-content:center;gap:8px;margin-top:12px;cursor:pointer;">
     <input type="checkbox" id="invertChk" style="width:16px;height:16px;accent-color:#4de8ff;cursor:pointer;">
     <span>Joystick pitch &mdash; push forward (&uarr; / W) to descend</span>
   </label>
   <div class="tiny" id="footLine">Landscape required &middot; headphones recommended &middot; desktop: WASD / arrows</div>
+</div>
+
+<div id="hangarOverlay" class="overlay hidden">
+  <div class="hTitle">The hangar &middot; choose your aircraft</div>
+  <div class="hPanel">
+    <div>
+      <div class="acKind" id="acKind"></div>
+      <div class="acName" id="acName"></div>
+      <div class="acBlurb" id="acBlurb"></div>
+    </div>
+    <div class="acStats" id="acStats"></div>
+    <div class="acList" id="acList" role="listbox" aria-label="Aircraft"></div>
+    <div class="hBtns">
+      <button id="hangarBack" class="btn ghost">Back</button>
+      <button id="flyBtn" class="btn">&#9654;&ensp;Enable tilt &amp; fly</button>
+    </div>
+  </div>
 </div>
 
 <div id="pauseOverlay" class="overlay hidden">
@@ -147,19 +222,33 @@
   </form>
   <ol id="boardList"></ol>
   <div class="tiny" id="boardStatus" style="margin-top:6px"></div>
-  <button id="retryBtn" class="btn" style="margin-top:18px">Fly again</button>
+  <div style="display:flex;gap:12px;align-items:center;margin-top:18px">
+    <button id="changeBtn" class="btn ghost" style="margin-top:0">Change aircraft</button>
+    <button id="retryBtn" class="btn">Fly again</button>
+  </div>
 </div>
 
 <div id="clearOverlay" class="overlay hidden">
-  <h1 style="font-size:34px">Sector <span id="clearLvl">1</span> flown</h1>
-  <div class="sub">wheels stopped</div>
-  <div class="stat"><b id="bLand" style="color:#c9ffd0"></b></div>
-  <div class="stat">Rings: <b id="bRings">0</b> &middot; chain <b id="bChain">x0</b></div>
-  <div class="stat">Fuel bonus: <b id="bFuel">0</b></div>
-  <div class="stat">Airframe bonus: <b id="bHull">0</b></div>
-  <div class="stat">Score: <b id="clearScore">0</b></div>
-  <div class="stat">Next sector: <b id="nextTheme"></b></div>
-  <button id="contBtn" class="btn" style="margin-top:20px">Take off again</button>
+  <h1 style="font-size:clamp(24px,6vh,34px)">Sector <span id="clearLvl">1</span> flown</h1>
+  <div class="sub" id="clearName" style="margin-bottom:10px">wheels stopped</div>
+  <div class="cols">
+    <div class="col">
+      <div class="stars" id="clearStars"></div>
+      <div class="stat"><b id="bLand" style="color:#c9ffd0"></b></div>
+      <div class="stat">Objective: <b id="bObj"></b></div>
+      <div class="stat">Rings: <b id="bRings">0</b> &middot; best chain <b id="bChain">x0</b></div>
+      <div class="stat">Fuel bonus: <b id="bFuel">0</b> &middot; airframe: <b id="bHull">0</b></div>
+      <div class="stat">Score: <b id="clearScore">0</b></div>
+    </div>
+    <div class="brief">
+      <div class="bName" id="nextName"></div>
+      <div class="bMeta" id="nextMeta"></div>
+      <div id="nextBrief"></div>
+      <div class="bObj">&#9670; <span id="nextObj"></span></div>
+      <div class="bNew" id="nextNew"></div>
+    </div>
+  </div>
+  <button id="contBtn" class="btn" style="margin-top:16px">Take off again</button>
 </div>
 
 <div id="rotateOverlay" class="overlay hidden">

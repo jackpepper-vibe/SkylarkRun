@@ -356,6 +356,42 @@ export function makeParkedPlane(body,trim){
   return merge(parts);
 }
 
+// ---------- dry-stone walls ----------
+/**
+ * One wall segment, a metre long in x like the hedge (scaled per instance),
+ * a metre high: coursed stones in a battered profile under a row of upright
+ * coping stones. The stones are real bumps in the geometry, so the wall reads
+ * as stone rather than as a grey hedge when the sun rakes along it.
+ */
+function wallSegment(courses,stones){
+  const rng=mulberry32(41), parts=[];
+  for(let c=0;c<courses;c++){
+    const y=c/courses*0.82, h=0.82/courses, w=0.62-c*0.05;
+    let x=-0.04;
+    while(x<1.04){
+      const l=Math.min(1.08-x,(1/stones)*(0.7+rng()*0.6));
+      const k=0.82+rng()*0.3;                           // each stone its own shade
+      const g=box(l*0.96,h*0.94,w*(0.9+rng()*0.14),x+l/2,y,(rng()-0.5)*0.05,"#8e8a80",
+        (v,n)=>(0.62+0.38*Math.max(0,n.y))*k);
+      parts.push(g); x+=l;
+    }
+  }
+  // the coping: a darker, narrower course along the top
+  if(courses>1) parts.push(box(1.06,0.18,0.36,0.5,0.82,0,"#6e6a62",(v,n)=>0.6+0.4*Math.max(0,n.y)));
+  return merge(parts);
+}
+
+// ---------- orchards ----------
+/** A small fruit tree: a short clean stem and one round, well-pruned head. */
+function fruitTree(seed,detail){
+  const rng=mulberry32(seed);
+  const crown=new THREE.Vector3(0,3.1,0);
+  const parts=[trunk(0.20,0.14,2.2,"#5a4632")];
+  parts.push(lump(1.55,0,3.1,0,crown,"#5a8a3a",rng,detail));
+  parts.push(lump(1.05,0.5,3.6,0.3,crown,"#62923e",rng,detail));
+  return merge(parts);
+}
+
 // ---------- rocks and bales ----------
 function rock(){
   const g=prep(new THREE.DodecahedronGeometry(1,1));
@@ -381,6 +417,8 @@ function bale(){
  * Tree kinds come in two seeds each for variety.
  */
 const pair=(near,far)=>({near,far:far||near});
+// the building blocks, for the airfields (airfields.js) to build with
+export { box, gableRoof, gables, merge, openings, paint, prep };
 export const Models={
   oak0:pair(oak(11,1),oak(11,0)),
   oak1:pair(oak(29,1),oak(29,0)),
@@ -388,6 +426,8 @@ export const Models={
   pine0:pair(pine(5,7),pine(5,5)),
   pine1:pair(pine(13,7),pine(13,5)),
   hedge:pair(hedgeSegment(7,8),hedgeSegment(3,5)),
+  wall:pair(wallSegment(2,3),wallSegment(1,1)),
+  fruit:pair(fruitTree(17,1),fruitTree(17,0)),
   cottage:pair(cottage()), farmhouse:pair(farmhouse()), barn:pair(barn()),
   redBarn:pair(redBarn()), shed:pair(shed()),
   rock:pair(rock()),

@@ -1,25 +1,30 @@
 # Skylark Run
 
-Open-cockpit air racing over sunlit countryside, in the browser. Roll her down
-the strip, thread the ring course, and grease the landing at the far end of
-every sector.
+Air racing over sunlit countryside, in the browser. Pick an aeroplane in the
+hangar, roll her down the strip, thread the ring course, and grease the landing
+at the far end of every sector of a five-sector tour.
 
 ## How it fits together
 
 ```
 src/
   engine    view atmosphere quality sun clouds weather post input audio
-            overlays state util logbook damage active
-  plane/    config sky terrain water models world cockpit hud flight
-                                        the monoplane and its countryside
+            overlays state util logbook damage active hangar
+  plane/    config sky terrain water models world hud flight
+            aircraft   the hangar: five types, their handling and engines
+            sectors    the tour: each sector's land, light, hazards, objective
+            airfields  six field layouts: surface, size, buildings, lights
+            cockpit/   index (manager) · kit (shared parts) ·
+                       modern vintage biplane cabin trike
   main.js   frame loop and menu flow
 ```
 
 The engine drives the aeroplane through a **Craft** interface — which states it
 owns, how to tick one, how to rig a camera, how to draw its own cockpit, how a
-sector starts and advances — so `main.js` has no idea what it is flying. There
-is one aircraft today; the seam is there because it made the code easier to
-reason about, not because something else is coming.
+sector starts and advances — so `main.js` has no idea what it is flying. Behind
+that interface the five aeroplanes share one flight model: each is a row of
+numbers in `aircraft.js` (speeds, authority, bank, Vr, fuel burn, how many hits
+the airframe takes, score rating, engine note) and a cockpit module.
 
 `sky.js` lives under `plane/` rather than with the engine: it adds lights to the
 shared scene the moment it is imported, which is emphatically a property of one
@@ -89,13 +94,57 @@ then asks the browser to close the page. A page may only close itself when it
 was opened by script or is running as an installed app, so on a normal browser
 tab it says so and leaves you on a shutdown card rather than pretending.
 
+## The hangar
+
+**Choose your aircraft** on the start card opens the hangar: the overlay is
+clear down the middle, so you sit in each cockpit — engine running, countryside
+flying past — while you choose. Arrow keys or A/D step through them, Enter flies.
+The choice is kept in `localStorage` under `skylark-aircraft`; after a crash,
+**Change aircraft** goes back to the hangar.
+
+| Aircraft | Type | Handling | Airframe | Score |
+| --- | --- | --- | --- | --- |
+| Skylark Mk II | vintage parasol monoplane: walnut panel, brass dials, leather, a linen wing on struts overhead | middling, forgiving | 3 | ×1.1 |
+| Linnet | open-cockpit biplane trainer, flown from the back seat: struts, wires, a float fuel gauge under the top wing | slow, tightest turn | 3 | ×1.0 |
+| Wayfarer | enclosed high-wing tourer from the left seat: six-pack, radio stack and map, yokes that move with the controls | stable, sluggish, longest range, quiet | 4 | ×0.9 |
+| Dragonfly | flex-wing microlight trike: base bar in gloved hands, A-frame and wires, sail overhead, EFIS and phone map | slowest, shortest take-off, sips fuel | 2 | ×0.8 |
+| Sunburst 330 | modern aerobatic single-seater: carbon panel, EFIS, moving map, G-meter | fastest, least forgiving | 3 | ×1.3 |
+
+The cabin shuts out the slipstream (no streaks, a quieter wind and a muffled
+engine) and its rain streams back across the screen rather than running down it;
+the trike's wing leads the pod into a turn and noses up as the bar goes out.
+
+## The tour
+
+Five sectors, each its own country, and each one ends at a different field — the
+next sector takes off from wherever the last one put you down.
+
+| Sector | Land · light · weather | Hazards | Objective | Destination |
+| --- | --- | --- | --- | --- |
+| 1 Home Meadows | hedged farmland · morning · clear | none | thread 10 rings | Downs Gliding Club (grass, gliders, T-hangars) |
+| 2 The Chalk Downs | open chalk fields, few hedges · midday · thermals | power lines, masts | fly under the wires twice | Old Sarum Aerodrome (wartime concrete, arched hangars, water tower) |
+| 3 Lake Country | stone walls, dark woods, high water · afternoon · showers | lines, balloons, birds | hit 3 gold gates | Lakeside Flying Club (asphalt, box hangars, lookout tower, lit) |
+| 4 Highland Glens | heather, pine, snow on the tops, walls · golden hour · gusts | turbines, masts, birds | hedge-hop for 20 s | Glen Strip (short, narrow gravel, a ruined tower) |
+| 5 The Evening Vale | orchards and golden stubble · dusk · clear | all of them | build a ×6 chain | Vale Regional Airport (lit runway, approach lights, terminal glowing) |
+
+Every point is worth a quarter more than in the sector before, times the
+aircraft's rating. The objective pays 2,000 the moment it is met and shows its
+progress top left. A sector earns up to three stars — the objective, 70% of its
+rings, and a good or greased landing — and the best stars per sector are kept
+in the logbook. The sector-flown card briefs the next leg: its country, its
+hour and weather, the objective, and any hazards new to it.
+
+After sector 5 the tour goes round again (*Home Meadows II*…): every hazard in
+play, denser, a thirstier engine, stiffer objectives and a longer course.
+
 ## The run
 
 - **Take off first.** Every sector starts at the holding point with the engine
-  running. Full power, hold the centreline, and ease back at Vr (180 km/h) — she
-  unsticks after about 400 m of roll and climbs away. Leave it too late and she
-  flies herself off at the end of the strip; wander off the side and you bend her.
-  **Fuel, score and sector distance only start once you are airborne.**
+  running. Full power, hold the centreline, and ease back at Vr — she unsticks
+  after 200–400 m of roll depending on the type, and climbs away. Leave it too
+  late and she flies herself off at the end of the strip; wander off the side
+  and you bend her. **Fuel, score and sector distance only start once you are
+  airborne.**
 - **Gates** score 120 x your chain multiplier, up to x8. Dead-centre is a bullseye.
   Fly past one and the chain breaks.
 - **Gold gates** pay treble, and are never on the easy line — down in the hollows,
@@ -105,9 +154,11 @@ tab it says so and leaves you on a shutdown card rather than pretending.
   with a white-cross jerrycan slung under it. Deliberately nothing like the
   hot-air balloons you have to dodge, which are never green. Fuel is the clock —
   it never stops.
-- **Hazards** from sector 2: pylon cables, guyed masts, wind turbines, crewed
-  hot-air balloons and bird flocks. Terrain and treetops are always live. The
-  balloons are solid all the way down — envelope and basket both.
+- **Hazards** from sector 2, each sector drawing only on its own kinds: pylon
+  cables, guyed masts, wind turbines, crewed hot-air balloons and bird flocks.
+  Terrain and treetops are always live. The balloons are solid all the way down —
+  envelope and basket both. Flying under a power line, between the towers and
+  clear of the cable, pays 300.
 - **Hedge hopping** under 45 m AGL pays a trickle bonus. So does staying alive.
 - **The runway** ends every sector. It is put down while still over the horizon,
   so it fades up out of the haze as you close on it; the approach call comes at
@@ -121,13 +172,16 @@ tab it says so and leaves you on a shutdown card rather than pretending.
   | Firm landing | sink < 19 m/s | +400 |
   | Heavy | anything worse | bounce, airframe damage, go around |
 
+  The centreline tolerances shrink with the strip: on the 24 m gravel of the
+  Glen Strip they are under half of these.
+
   Then hold the centreline through the rollout — about 210 m and nine seconds of
   it, drag first and brakes as she slows. Run off the side or off the end and the
   bonus is gone.
 
-Each sector changes the land (meadows, highlands, lakeland, downland), the light
-(morning through golden hour) and, from sector 3, the weather (gusts, showers,
-thermals).
+Each sector's land is a theme in `terrain.js` with its own relief, ground
+palette, hedge or dry-stone-wall boundaries, tree mix (oak, poplar, pine),
+farms, boulders and orchards, and its own colours on the far ridges.
 
 ## Logbooks
 
@@ -229,25 +283,37 @@ Systems are small managers with the same shape — build once, `reset(level)`,
   pixels. A software rasteriser starts on LOW. After that the tier only ever
   steps down, after two 90-frame windows of flying that average over 24 ms. A
   lost WebGL context comes back on LOW.
-- **The cockpit** (`cockpit.js`) is the open cockpit of a modern aerobatic
-  single-seater, as 3D geometry in metres round the pilot's eye: a glossy
-  composite nose in a red sunburst livery with a pointed spinner, a tinted
-  wind deflector, a carbon-fibre panel under a matte glare shield, and low
-  symmetric-section wings. The panel carries an attitude display (horizon,
-  pitch ladder, bank scale, speed and altitude tapes, heading), a moving map
-  with the course in GPS magenta, the run page (score, rings, sector,
-  airframe), a G-meter with max and min tell-tales, and LED annunciators on
-  the glare shield. It is drawn in its own pass after the world, over a
-  cleared depth buffer, into the same HDR target, lit by the world's sun and
-  sky turned into the aircraft's frame, with its own shadow map and sky
-  reflections. Static parts are baked into one mesh per material, so it draws
-  in a few dozen calls; the screens are canvases redrawn at their own rates.
-  Bird strikes and rain land on the deflector, dents and oil on the nose.
-  What no real cockpit has — guidance, popups, the slipstream — stays in the
-  2D layer (`hud.js`).
+- **The cockpits** (`cockpit/`) are 3D geometry in metres round the pilot's
+  eye, one module per type, each exporting `build()`. The manager
+  (`cockpit/index.js`) owns what they share: the scene and camera, the pilot's
+  head (lag in turns and pulls, engine buzz, the strip's rumble), and the
+  world's sun and sky turned into the aircraft's frame every frame, with the
+  cockpit's own shadow map fitted to each type and sky reflections rebuilt for
+  each time of day. A cockpit is built the first time it is chosen and kept.
+  The kit (`cockpit/kit.js`) holds the shared parts: canvas textures, the bake
+  that flattens static geometry into one mesh per material (so each cockpit
+  draws in a few dozen calls), the propeller disc, the windscreen grime (bird
+  strikes; rain that runs down an open screen or streams back across a cabin's),
+  cowling damage (composite cracks, scraped paint, torn fabric, oil), round
+  dials sharing one atlas, lofted airfoil wings and fuselage skins, and the
+  moving map, run page and attitude display in paper and glass styles. Every
+  cockpit is drawn in its own pass after the world, over a cleared depth
+  buffer, into the same HDR target. What no real cockpit has — guidance,
+  popups, the objective, the slipstream — stays in the 2D layer (`hud.js`).
+- **Airfields** (`airfields.js`) are six layouts — farm strip, gliding club,
+  wartime aerodrome, lakeside club, glen strip, regional airport — each with its
+  own length, width, surface (mown grass, gravel, slabbed concrete, marked
+  asphalt, all painted in metres so markings keep their size on any strip),
+  buildings and parked aircraft, lights, and one tall landmark. The buildings
+  stand along the first 500 m from the approach end, the stretch you roll past
+  on take-off and after landing. Each field is assembled once into a group
+  baked into a single mesh, and the two a sector touches are built before it
+  starts. At dusk the glazing lights up and the runway lights reach further.
 
-Measured cost is under 0.5 ms of JavaScript per frame; on an Intel Iris Xe the
-whole frame takes about 9.5 ms at 1280 x 720 on the HIGH tier.
+Measured cost is under 0.5 ms of JavaScript per frame. On an Intel Iris Xe the
+whole frame takes 9–16 ms at 1280 x 720 on the HIGH tier, depending on the
+aircraft and on how warm the GPU is — measure types against each other in one
+session (`--perf --aircraft`), not across launches.
 
 ## Development
 
@@ -256,7 +322,11 @@ Judge the look on the real GPU, not in the software renderer:
 ```
 node tools/look.mjs                  # posed captures into shots/look/
 node tools/look.mjs shots/x cruise   # just some poses
+node tools/look.mjs shots/ac --aircraft   # every cockpit, on the roll and cruising, and the hangar
+node tools/look.mjs shots/s --sectors     # every sector: holding point, cruise, the field on approach
 node tools/look.mjs --perf           # frame time in the cruise pose, vsync off
+node tools/look.mjs --perf --aircraft     # every aircraft's frame time, interleaved in one session
+AIRCRAFT=linnet node tools/look.mjs  # any of the above in a given aircraft
 PROBE="SKY.fx(false)" node tools/look.mjs --perf   # price a feature by turning it off
 ```
 
@@ -270,10 +340,15 @@ node C:/Claude/Tools/shot/shot.mjs ./index.html --viewport 1280x720 --wait 4000 
 `window.SKY` is the test hook: `takeoff()`, `play()` (takes off for you), `approach()`, `step(n, dt)` to advance
 the simulation without waiting on frames, `hold(true)` to freeze the clock while
 still rendering, `fx(false)` to drop the post chain, `quality()` / `setQuality(t)`
-for the graphics tier, and `gfx()` for the renderer and scene.
+for the graphics tier, `gfx()` for the renderer and scene, `setAircraft(id)` /
+`aircraft()`, `toSector(n)` to start sector n at its holding point, and
+`hangar()` to open the hangar.
 
 The smoke test drives all of that — the take-off roll, the ring course, a flown
-approach, a go-around and a heavy arrival — and fails on any console error:
+approach, a go-around and a heavy arrival, every aircraft's take-off, the whole
+tour's fields and hazards, a pass under the wires, a landing on the glen strip
+and the briefing that follows, and the real start and Fly buttons — and fails
+on any console error:
 
 ```
 node tools/headless-test.mjs     # the game: flight, gates, approach, logbook
